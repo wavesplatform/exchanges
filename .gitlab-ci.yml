@@ -1,0 +1,16 @@
+include:
+  - project: 'we-private/backend/common-ci'
+    ref: ci
+    file: 'ci-functions/build_image.yml'
+  - project: 'we-private/backend/common-ci'
+    ref: ci
+    file: 'ci-functions/deploy_stages.yml'
+
+variables:
+  APP_NAME: exchanges
+  # CHART_LIST overrides the names of helm charts which are used in agrocd. If empty, then is equal to APP_NAME
+  CHART_LIST: "exchanges-service exchanges-consumer"
+
+stages:
+  - "Build docker image"
+  - "Deploy to stage/test/dev"
