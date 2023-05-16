@@ -1,40 +1,20 @@
 use crate::error::Error;
-use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
 use database::db::PgPool;
 use database::schema::exchange_transactions_grouped;
 
 use diesel::{
     dsl::*,
     prelude::*,
-    sql_types::{BigInt, Date, Int8, Numeric, Text},
+    sql_types::{BigInt, Numeric},
 };
 
-use super::ExchangeAggregatesRequest;
+use super::{ExchangeAggregatesRequest, ExchangesAggregateDbRow};
 
 pub(crate) trait Repo {
     fn exchanges_aggregates(
         &self,
         req: &ExchangeAggregatesRequest,
     ) -> Result<Vec<ExchangesAggregateDbRow>, Error>;
-}
-
-#[derive(Clone, Debug, Queryable, QueryableByName)]
-pub(crate) struct ExchangesAggregateDbRow {
-    #[sql_type = "Date"]
-    pub sum_date: NaiveDate,
-    // #[sql_type = "Text"]
-    // sender: String,
-    #[sql_type = "Text"]
-    pub amount_asset_id: String,
-    #[sql_type = "Text"]
-    pub fee_asset_id: String,
-    #[sql_type = "Numeric"]
-    pub amount_volume_sum: BigDecimal,
-    #[sql_type = "Numeric"]
-    pub fee_volume_sum: BigDecimal,
-    #[sql_type = "Int8"]
-    pub count: i64,
 }
 
 pub struct PgRepo {

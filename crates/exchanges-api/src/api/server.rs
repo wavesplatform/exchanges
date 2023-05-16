@@ -68,14 +68,14 @@ pub async fn start(
 
     let create_serde_qs_config = || serde_qs::Config::new(5, false);
 
-    let handler = warp::path!("interval_exchange")
+    let handler = warp::path!("interval_exchanges")
         .and(warp::get())
         .and(with_repo.clone())
         .and(with_rates.clone())
         .and(serde_qs::warp::query::<ExchangeAggregatesRequest>(
             create_serde_qs_config(),
         ))
-        .and_then(interval_exchange)
+        .and_then(interval_exchanges)
         .map(|res| warp::reply::json(&res));
 
     let log = warp::log::custom(access);
@@ -98,7 +98,7 @@ pub async fn start(
     Ok(())
 }
 
-async fn interval_exchange(
+async fn interval_exchanges(
     repo: Arc<repo::PgRepo>,
     rates: Arc<ApiHttpClient<RatesService>>,
     req: ExchangeAggregatesRequest,

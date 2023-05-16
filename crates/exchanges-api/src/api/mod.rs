@@ -3,7 +3,8 @@ pub mod server;
 
 use crate::error;
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display};
@@ -42,6 +43,24 @@ impl TryFrom<&str> for Interval {
             )),
         }
     }
+}
+
+#[derive(Clone, Debug, Queryable, QueryableByName)]
+pub(crate) struct ExchangesAggregateDbRow {
+    #[sql_type = "Date"]
+    pub sum_date: NaiveDate,
+    // #[sql_type = "Text"]
+    // sender: String,
+    #[sql_type = "Text"]
+    pub amount_asset_id: String,
+    #[sql_type = "Text"]
+    pub fee_asset_id: String,
+    #[sql_type = "Numeric"]
+    pub amount_volume_sum: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub fee_volume_sum: BigDecimal,
+    #[sql_type = "Int8"]
+    pub count: i64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
