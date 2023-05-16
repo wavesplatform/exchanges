@@ -1,0 +1,23 @@
+[package]
+name = "shared"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bigdecimal.workspace = true
+blake2.workspace = true
+bs58.workspace = true
+bytes.workspace = true
+fragstrings.workspace = true
+num-bigint.workspace = true
+num-integer.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+tokio.workspace = true
+wavesexchange_apis.workspace = true
+wavesexchange_log.workspace = true
+
+[lib]
+name = "shared"
+path = "src/lib.rs"

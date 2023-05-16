@@ -1,0 +1,33 @@
+[package]
+name = "exchanges-consumer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+bigdecimal.workspace = true
+bs58.workspace = true
+chrono.workspace = true
+diesel.workspace = true
+envy.workspace = true
+fragstrings.workspace = true
+itertools.workspace = true
+lazy_static.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+waves-protobuf-schemas.workspace = true
+wavesexchange_apis.workspace = true
+wavesexchange_log.workspace = true
+wavesexchange_warp.workspace = true
+
+# Local deps
+database.workspace = true
+shared.workspace = true
+
+[[bin]]
+name = "consumer"
+path = "src/main.rs"
