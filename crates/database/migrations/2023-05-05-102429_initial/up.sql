@@ -25,9 +25,9 @@ CREATE TABLE exchange_transactions (
     tx_date DATE,
     sender TEXT NOT NULL,
     amount_asset_id TEXT NOT NULL,
-    amount_volume BIGINT NOT NULL,
+    amount BIGINT NOT NULL,
     fee_asset_id TEXT NOT NULL,
-    fee_volume BIGINT
+    fee BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS exchange_transactions_block_uid_idx
@@ -39,7 +39,7 @@ CREATE TABLE exchange_transactions_grouped(
     sender TEXT NOT NULL,
     amount_asset_id TEXT NOT NULL,
     fee_asset_id TEXT NOT NULL,
-    amount_volume_sum BIGINT NOT NULL,
-    fee_volume_sum BIGINT,
+    amount_sum BIGINT NOT NULL,
+    fee_sum BIGINT,
     PRIMARY KEY (sum_date, amount_asset_id, fee_asset_id, sender)
 );

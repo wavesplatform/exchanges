@@ -90,9 +90,9 @@ pub struct InsertableExchnageTx {
     tx_date: NaiveDate,
     sender: String,
     amount_asset_id: String,
-    amount_volume: i64,
+    amount: i64,
     fee_asset_id: Option<String>,
-    fee_volume: Option<i64>,
+    fee: Option<i64>,
 }
 
 pub async fn start<T, R>(
@@ -292,7 +292,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Option<InsertableExchnageTx> {
 
                     let asset_pair = sell_order.asset_pair.as_ref().unwrap();
 
-                    let (fee_asset_id, fee_volume) = match sell_order.matcher_fee.as_ref() {
+                    let (fee_asset_id, fee) = match sell_order.matcher_fee.as_ref() {
                         Some(f) => (Some(get_asset_id(&f.asset_id)), Some(f.amount)),
                         _ => (None, None),
                     };
@@ -318,9 +318,9 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Option<InsertableExchnageTx> {
                         tx_date: time_stamp.date_naive(),
                         sender: sender_address,
                         amount_asset_id,
-                        amount_volume: *amount,
+                        amount: *amount,
                         fee_asset_id: fee_asset_id,
-                        fee_volume: fee_volume,
+                        fee,
                     };
 
                     Some(tx_data)

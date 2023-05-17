@@ -2,7 +2,10 @@ use super::{
     repo::{self},
     ExchangeAggregatesRequest, ExchangesAggregate, Interval,
 };
-use crate::{api::repo::Repo, error};
+use crate::{
+    api::repo::Repo,
+    error::{self, Error},
+};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
@@ -103,7 +106,7 @@ async fn interval_exchanges(
     rates: Arc<ApiHttpClient<RatesService>>,
     req: ExchangeAggregatesRequest,
 ) -> Result<List<ExchangesAggregate>, Rejection> {
-    let req = ExchangeAggregatesRequest::default_merge(req);
+    let req = ExchangeAggregatesRequest::default_merge(req)?;
 
     let db_items = repo.exchanges_aggregates(&req)?;
     let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
@@ -117,16 +120,16 @@ async fn interval_exchanges(
         asset_pairs.push((r.fee_asset_id.as_str(), fee_base_asset));
     });
 
-    //@todo convert into Rejection or need to update rates_map in other thread periodicly
     let rates_map = rates
         .rates(asset_pairs.into_iter().unique())
         .await
-        .expect("rates query error")
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
         .data
         .into_iter()
         .filter_map(|rate| Some((rate.pair.clone(), rate)))
         .collect::<HashMap<_, _>>();
 
+    // let rates_map: HashMap<String, Rate> = HashMap::new();
     let mut histogram: HashMap<NaiveDate, ExchangesAggregate> = HashMap::new();
 
     /*
@@ -158,13 +161,13 @@ async fn interval_exchanges(
         let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
         let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
 
-        (*e).volume += r.amount_volume_sum.clone() * amount_rate.data.rate.clone();
+        (*e).volume += r.amount_sum.clone() * amount_rate.data.rate.clone();
         (*e).count += r.count.clone();
 
         let fee_rate_key = format!("{}/{}", r.fee_asset_id, fee_base_asset);
         let fee_rate = rates_map.get(&fee_rate_key).unwrap_or(&zero_rate);
 
-        (*e).fees += r.fee_volume_sum.clone() * fee_rate.data.rate.clone();
+        (*e).fees += r.fee_sum.clone() * fee_rate.data.rate.clone();
     });
 
     let mut items = vec![];

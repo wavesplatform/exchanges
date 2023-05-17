@@ -1,7 +1,7 @@
 pub mod repo;
 pub mod server;
 
-use crate::error;
+use crate::error::{self, Error};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
@@ -56,9 +56,9 @@ pub(crate) struct ExchangesAggregateDbRow {
     #[sql_type = "Text"]
     pub fee_asset_id: String,
     #[sql_type = "Numeric"]
-    pub amount_volume_sum: BigDecimal,
+    pub amount_sum: BigDecimal,
     #[sql_type = "Numeric"]
-    pub fee_volume_sum: BigDecimal,
+    pub fee_sum: BigDecimal,
     #[sql_type = "Int8"]
     pub count: i64,
 }
@@ -91,7 +91,7 @@ pub(crate) struct ExchangesAggregate {
 }
 
 impl ExchangeAggregatesRequest {
-    fn default_merge(req: Self) -> Self {
+    fn default_merge(req: Self) -> Result<Self, Error> {
         let mut def = Self::default();
         if req.interval.is_some() {
             def.interval = req.interval;
@@ -117,7 +117,11 @@ impl ExchangeAggregatesRequest {
         }
 
         def.order_sender_in = match senders.len() {
-            0 => None,
+            0 => {
+                return Err(
+                    Error::ValidationError("invalid sender query param".into(), None).into(),
+                )
+            }
             _ => Some(senders),
         };
 
@@ -140,7 +144,7 @@ impl ExchangeAggregatesRequest {
             def.after = req.after;
         }
 
-        def
+        Ok(def)
     }
 }
 

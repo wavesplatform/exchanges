@@ -258,8 +258,8 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn update_exchange_transactions_histogram(&self) -> Result<()> {
-        let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_volume_sum, fee_volume_sum, tx_count)
-                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount_volume) amount_volume_sum, sum(tx.fee_volume) fee_volume_sum, count(*) tx_count
+        let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
+                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
                                 from exchange_transactions tx
                                     inner join blocks_microblocks b on tx.block_uid = b.uid
                                 where
@@ -269,8 +269,8 @@ impl ConsumerRepoOperations for PooledPgConnection {
 
                             on conflict on constraint exchange_transactions_grouped_pkey
                             do update set
-                                amount_volume_sum = excluded.amount_volume_sum,
-                                fee_volume_sum = excluded.fee_volume_sum,
+                                amount_sum = excluded.amount_sum,
+                                fee_sum = excluded.fee_sum,
                                 tx_count = excluded.tx_count";
 
         let q = sql_query(sql);

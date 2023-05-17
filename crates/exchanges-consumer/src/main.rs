@@ -5,7 +5,7 @@ mod config;
 mod consumer;
 mod error;
 
-use crate::{consumer::storage::pg::PgConsumerRepo, error::Error as AppError};
+use crate::consumer::storage::pg::PgConsumerRepo;
 use anyhow::Result;
 use database::db;
 use tokio::select;

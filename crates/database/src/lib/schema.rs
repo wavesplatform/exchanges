@@ -14,9 +14,9 @@ table! {
         tx_date -> Date,
         sender -> Varchar,
         amount_asset_id -> Varchar,
-        amount_volume -> Int8,
+        amount -> Int8,
         fee_asset_id  -> Varchar,
-        fee_volume    -> Int8,
+        fee    -> Int8,
     }
 }
 
@@ -26,9 +26,9 @@ table! {
         tx_count -> Int8,
         sender -> Varchar,
         amount_asset_id -> Varchar,
-        amount_volume_sum -> Int8,
+        amount_sum -> Int8,
         fee_asset_id -> Varchar,
-        fee_volume_sum -> Int8,
+        fee_sum -> Int8,
     }
 }
 

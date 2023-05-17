@@ -36,9 +36,9 @@ impl Repo for PgRepo {
                 // exchange_transactions_grouped::sender,
                 exchange_transactions_grouped::amount_asset_id,
                 exchange_transactions_grouped::fee_asset_id,
-                sql::<Numeric>("sum(amount_volume_sum) as amount_volume_sum"),
-                sql::<Numeric>("sum(fee_volume_sum) as fee_volume_sum"),
-                sql::<BigInt>("count(*) as count"),
+                sql::<Numeric>("sum(amount_sum) as amount_sum"),
+                sql::<Numeric>("sum(fee_sum) as fee_sum"),
+                sql::<BigInt>("sum(tx_count)::BIGINT as count"),
             ))
             .group_by((
                 exchange_transactions_grouped::sum_date,
