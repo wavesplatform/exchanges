@@ -88,6 +88,7 @@ pub trait UpdatesSource {
 pub struct InsertableExchnageTx {
     block_uid: i64,
     tx_date: NaiveDate,
+    tx_id: String,
     sender: String,
     amount_asset_id: String,
     amount: i64,
@@ -157,7 +158,7 @@ where
             if last_height > last_histogram_update_height + 300 {
                 info!("updating exchange transactions histogram.");
                 ops.update_exchange_transactions_histogram()?;
-                ops.delete_old_exchange_transactions()?;
+                // ops.delete_old_exchange_transactions()?;
                 last_histogram_update_height = last_height;
             }
 
@@ -259,10 +260,10 @@ fn handle_appends<R: ConsumerRepoOperations>(
     Ok(())
 }
 
-fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Option<InsertableExchnageTx> {
+fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
     match ann_tx.tx.data.transaction.as_ref() {
-        None => None,
-        Some(EthereumTransaction(_)) => None,
+        None => vec![],
+        Some(EthereumTransaction(_)) => vec![],
         Some(WavesTransaction(Transaction {
             chain_id,
             data,
@@ -284,48 +285,58 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Option<InsertableExchnageTx> {
                         )
                     };
 
-                    // @todo rewrite with order_side as Enum
-                    let sell_order = orders
-                        .iter()
-                        .find(|o| o.order_side == 1)
-                        .expect("sell order");
+                    let mut tx_data = vec![];
+                    let mut prev_sender = None::<String>;
 
-                    let asset_pair = sell_order.asset_pair.as_ref().unwrap();
+                    //ExchangeTransaction have only 2 orders
+                    for order in orders {
+                        let sender_pub_key = match &order.sender {
+                            Some(SenderPublicKey(b)) => Some(b),
+                            Some(Eip712Signature(_)) => None,
+                            None => panic!("order sender signature in None"),
+                        };
 
-                    let (fee_asset_id, fee) = match sell_order.matcher_fee.as_ref() {
-                        Some(f) => (Some(get_asset_id(&f.asset_id)), Some(f.amount)),
-                        _ => (None, None),
-                    };
+                        if sender_pub_key.is_none() {
+                            warn!("sender signature is None {}", &ann_tx.tx.id);
+                            return vec![];
+                        }
 
-                    let sender_pub_key = match &sell_order.sender {
-                        Some(SenderPublicKey(b)) => Some(b),
-                        Some(Eip712Signature(_)) => None,
-                        None => panic!("order1 sender signature in None"),
-                    };
+                        let sender_address =
+                            Address::from_public_key(&sender_pub_key.unwrap(), chain_id)
+                                .into_string();
 
-                    if sender_pub_key.is_none() {
-                        warn!("sender signature is None {}", &ann_tx.tx.id);
-                        return None;
+                        if let Some(ps) = prev_sender {
+                            if ps.eq(&sender_address) {
+                                // skip transactions where sell order and by order has same sender_address
+                                return vec![];
+                            }
+                        }
+
+                        let asset_pair = order.asset_pair.as_ref().unwrap();
+
+                        let (fee_asset_id, fee) = match order.matcher_fee.as_ref() {
+                            Some(f) => (Some(get_asset_id(&f.asset_id)), Some(f.amount)),
+                            _ => (None, None),
+                        };
+
+                        let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
+
+                        prev_sender = Some(sender_address.clone());
+
+                        tx_data.push(InsertableExchnageTx {
+                            block_uid: ann_tx.block_uid,
+                            tx_date: time_stamp.date_naive(),
+                            tx_id: ann_tx.tx.id.clone(),
+                            sender: sender_address,
+                            amount_asset_id,
+                            amount: *amount,
+                            fee_asset_id: fee_asset_id,
+                            fee,
+                        });
                     }
-
-                    let sender_address =
-                        Address::from_public_key(&sender_pub_key.unwrap(), chain_id).into_string();
-
-                    let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
-
-                    let tx_data = InsertableExchnageTx {
-                        block_uid: ann_tx.block_uid,
-                        tx_date: time_stamp.date_naive(),
-                        sender: sender_address,
-                        amount_asset_id,
-                        amount: *amount,
-                        fee_asset_id: fee_asset_id,
-                        fee,
-                    };
-
-                    Some(tx_data)
+                    tx_data
                 }
-                _ => None,
+                _ => vec![],
             }
         }
     }

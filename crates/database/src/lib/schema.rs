@@ -12,11 +12,12 @@ table! {
         uid -> Int8,
         block_uid -> Int8,
         tx_date -> Date,
+        tx_id -> Varchar,
         sender -> Varchar,
         amount_asset_id -> Varchar,
         amount -> Int8,
         fee_asset_id  -> Varchar,
-        fee    -> Int8,
+        fee -> Int8,
     }
 }
 

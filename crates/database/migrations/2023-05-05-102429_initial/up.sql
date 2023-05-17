@@ -23,6 +23,7 @@ CREATE TABLE exchange_transactions (
             REFERENCES blocks_microblocks (uid)
                 ON DELETE CASCADE,
     tx_date DATE,
+    tx_id TEXT NOT NULL,
     sender TEXT NOT NULL,
     amount_asset_id TEXT NOT NULL,
     amount BIGINT NOT NULL,
@@ -32,6 +33,8 @@ CREATE TABLE exchange_transactions (
 
 CREATE INDEX IF NOT EXISTS exchange_transactions_block_uid_idx
     ON exchange_transactions (block_uid);
+
+CREATE INDEX IF NOT EXISTS exchange_transactions_tx_date_idx ON exchange_transactions (tx_date);
 
 CREATE TABLE exchange_transactions_grouped(
     sum_date DATE,
