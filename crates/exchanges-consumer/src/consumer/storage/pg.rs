@@ -3,11 +3,11 @@ pub use super::{ConsumerRepo, ConsumerRepoOperations};
 use crate::consumer::{InsertableExchnageTx, PrevHandledHeight};
 use crate::error::Error as AppError;
 use anyhow::{Error, Result};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use database::db::{PgPool, PooledPgConnection};
 use database::schema::{blocks_microblocks, exchange_transactions};
 use diesel::dsl::sql;
-use diesel::sql_types::{BigInt, Nullable, Timestamp};
+use diesel::sql_types::{BigInt, Date, Nullable, Timestamp};
 use diesel::{prelude::*, sql_query};
 use std::collections::HashMap;
 
@@ -258,12 +258,25 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn update_exchange_transactions_histogram(&self) -> Result<()> {
+        //select tx_date from exchange_transactions order by uid desc limit 1
+
+        let last_dates = exchange_transactions::table
+            .select((exchange_transactions::tx_date))
+            .order(exchange_transactions::tx_date.desc())
+            .limit(1)
+            .load::<NaiveDate>(self)
+            .map_err(|err| Error::new(AppError::DbError(err)))?;
+
+        if last_dates.is_empty() {
+            return Ok(());
+        }
+
         let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
                             select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
                                 from exchange_transactions tx
                                     inner join blocks_microblocks b on tx.block_uid = b.uid
                                 where
-                                tx.tx_date >= (select tx_date from exchange_transactions order by uid desc limit 1)::Date
+                                tx.tx_date >= $1::Date
                                 and b.time_stamp is not null
                             group by 1,2,3,4
 
@@ -273,7 +286,8 @@ impl ConsumerRepoOperations for PooledPgConnection {
                                 fee_sum = excluded.fee_sum,
                                 tx_count = excluded.tx_count";
 
-        let q = sql_query(sql);
+        let last_date = last_dates.first().unwrap();
+        let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
             let context = format!("Cannot save exchange_transactions_grouped: {}", err);
