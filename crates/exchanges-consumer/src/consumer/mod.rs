@@ -12,12 +12,12 @@ use itertools::Itertools;
 use shared::waves::Address;
 use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
+use waves_protobuf_schemas::waves::events::transaction_metadata::{ExchangeMetadata, Metadata};
 use waves_protobuf_schemas::waves::signed_transaction::Transaction::{
     EthereumTransaction, WavesTransaction,
 };
 use waves_protobuf_schemas::waves::{
     events::{StateUpdate, TransactionMetadata},
-    order::Sender::{Eip712Signature, SenderPublicKey},
     transaction::Data,
     ExchangeTransactionData, SignedTransaction, Transaction,
 };
@@ -265,13 +265,8 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
         None => vec![],
         Some(EthereumTransaction(_)) => vec![],
         Some(WavesTransaction(Transaction {
-            chain_id,
-            data,
-            timestamp,
-            //sender_public_key,
-            ..
+            data, timestamp, ..
         })) => {
-            let chain_id = *chain_id as u8;
             match data.as_ref() {
                 Some(Data::Exchange(ExchangeTransactionData { orders, amount, .. })) => {
                     let time_stamp = {
@@ -289,21 +284,14 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                     let mut prev_sender = None::<String>;
 
                     //ExchangeTransaction have only 2 orders
-                    for order in orders {
-                        let sender_pub_key = match &order.sender {
-                            Some(SenderPublicKey(b)) => Some(b),
-                            Some(Eip712Signature(_)) => None,
-                            None => panic!("order sender signature in None"),
+                    for (i, order) in orders.iter().enumerate() {
+                        let sender_address = match &ann_tx.tx.meta.metadata {
+                            Some(Metadata::Exchange(ExchangeMetadata {
+                                order_sender_addresses,
+                                ..
+                            })) => Address::new(&order_sender_addresses[i]).into_string(),
+                            _ => panic!("tx_id:{} can't get sender address from Metadata::Exchange(ExchangeMetadata {{order_sender_addresses[{}]}})", ann_tx.tx.id, i),
                         };
-
-                        if sender_pub_key.is_none() {
-                            warn!("sender signature is None {}", &ann_tx.tx.id);
-                            return vec![];
-                        }
-
-                        let sender_address =
-                            Address::from_public_key(&sender_pub_key.unwrap(), chain_id)
-                                .into_string();
 
                         if let Some(ps) = prev_sender {
                             if ps.eq(&sender_address) {

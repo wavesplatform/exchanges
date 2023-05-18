@@ -3,7 +3,7 @@ pub use super::{ConsumerRepo, ConsumerRepoOperations};
 use crate::consumer::{InsertableExchnageTx, PrevHandledHeight};
 use crate::error::Error as AppError;
 use anyhow::{Error, Result};
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use database::db::{PgPool, PooledPgConnection};
 use database::schema::{blocks_microblocks, exchange_transactions};
 use diesel::dsl::sql;
@@ -258,10 +258,8 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn update_exchange_transactions_histogram(&self) -> Result<()> {
-        //select tx_date from exchange_transactions order by uid desc limit 1
-
         let last_dates = exchange_transactions::table
-            .select((exchange_transactions::tx_date))
+            .select(exchange_transactions::tx_date)
             .order(exchange_transactions::tx_date.desc())
             .limit(1)
             .load::<NaiveDate>(self)
@@ -286,7 +284,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
                                 fee_sum = excluded.fee_sum,
                                 tx_count = excluded.tx_count";
 
-        let last_date = last_dates.first().unwrap();
+        let last_date = last_dates.first().expect("empty date");
         let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
