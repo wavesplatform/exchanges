@@ -27,6 +27,7 @@ CREATE TABLE exchange_transactions (
     sender TEXT NOT NULL,
     amount_asset_id TEXT NOT NULL,
     amount BIGINT NOT NULL,
+    order_amount BIGINT NOT NULL,
     fee_asset_id TEXT NOT NULL,
     fee BIGINT
 );
@@ -43,6 +44,6 @@ CREATE TABLE exchange_transactions_grouped(
     amount_asset_id TEXT NOT NULL,
     fee_asset_id TEXT NOT NULL,
     amount_sum BIGINT NOT NULL,
-    fee_sum BIGINT,
+    fee_sum Numeric(100, 10),
     PRIMARY KEY (sum_date, amount_asset_id, fee_asset_id, sender)
 );

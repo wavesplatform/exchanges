@@ -92,6 +92,7 @@ pub struct InsertableExchnageTx {
     sender: String,
     amount_asset_id: String,
     amount: i64,
+    order_amount: i64,
     fee_asset_id: Option<String>,
     fee: Option<i64>,
 }
@@ -158,7 +159,10 @@ where
             if last_height > last_histogram_update_height + 300 {
                 info!("updating exchange transactions histogram.");
                 ops.update_exchange_transactions_histogram()?;
+
+                // info!("deleting old exchange transactions.");
                 // ops.delete_old_exchange_transactions()?;
+
                 last_histogram_update_height = last_height;
             }
 
@@ -253,7 +257,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
         .flat_map(|ann_tx| extract_exchange_txs(&ann_tx))
         .collect_vec();
 
-    handle_exchange_txs(storage, &txs_with_block_uids)?;
+    storage.insert_exchange_transactions(&txs_with_block_uids)?;
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
 
@@ -300,7 +304,8 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             }
                         }
 
-                        let asset_pair = order.asset_pair.as_ref().unwrap();
+                        let asset_pair =
+                            order.asset_pair.as_ref().expect("order.asset_pair is None");
 
                         let (fee_asset_id, fee) = match order.matcher_fee.as_ref() {
                             Some(f) => (Some(get_asset_id(&f.asset_id)), Some(f.amount)),
@@ -318,6 +323,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             sender: sender_address,
                             amount_asset_id,
                             amount: *amount,
+                            order_amount: order.amount,
                             fee_asset_id: fee_asset_id,
                             fee,
                         });
@@ -328,14 +334,6 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
             }
         }
     }
-}
-
-fn handle_exchange_txs<R: ConsumerRepoOperations>(
-    storage: &R,
-    txs: &Vec<InsertableExchnageTx>,
-) -> Result<()> {
-    storage.insert_exchange_transactions(txs)?;
-    Ok(())
 }
 
 fn squash_microblocks<R: ConsumerRepoOperations>(storage: &R) -> Result<()> {

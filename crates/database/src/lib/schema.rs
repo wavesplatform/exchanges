@@ -16,6 +16,7 @@ table! {
         sender -> Varchar,
         amount_asset_id -> Varchar,
         amount -> Int8,
+        order_amount -> Int8,
         fee_asset_id  -> Varchar,
         fee -> Int8,
     }
@@ -29,7 +30,7 @@ table! {
         amount_asset_id -> Varchar,
         amount_sum -> Int8,
         fee_asset_id -> Varchar,
-        fee_sum -> Int8,
+        fee_sum -> Numeric,
     }
 }
 

@@ -270,7 +270,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         }
 
         let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
-                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
+                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum((tx.fee::Numeric * tx.amount / tx.order_amount)) fee_sum, count(*) tx_count
                                 from exchange_transactions tx
                                     inner join blocks_microblocks b on tx.block_uid = b.uid
                                 where
@@ -294,13 +294,26 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn delete_old_exchange_transactions(&self) -> Result<()> {
-        let sql = "delete from exchange_transactions tx where tx.tx_date < (select tx_date - '2 DAY'::interval from exchange_transactions order by uid desc limit 1)::Date";
+        let old_dates = exchange_transactions::table
+            .select(sql::<Date>("(tx_date - '2 DAY'::interval)::Date"))
+            .order(exchange_transactions::tx_date.desc())
+            .limit(1)
+            .load::<NaiveDate>(self)
+            .map_err(|err| Error::new(AppError::DbError(err)))?;
 
-        let q = sql_query(sql);
+        if old_dates.is_empty() {
+            return Ok(());
+        }
 
-        q.execute(self).map(|_| ()).map_err(|err| {
-            let context = format!("Cannot save exchange_transactions_grouped: {}", err);
-            Error::new(AppError::DbError(err)).context(context)
-        })
+        let old_date = old_dates.first().expect("invalid old date");
+
+        diesel::delete(exchange_transactions::table)
+            .filter(exchange_transactions::tx_date.lt(old_date))
+            .execute(self)
+            .map(|_| ())
+            .map_err(|err| {
+                let context = format!("Cannot delete old exchange_transactions: {}", err);
+                Error::new(AppError::DbError(err)).context(context)
+            })
     }
 }
