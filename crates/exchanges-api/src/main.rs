@@ -21,6 +21,7 @@ async fn main() -> Result<()> {
         config.api.port,
         config.api.metrics_port,
         config.api.rates_api_url,
+        config.api.assets_api_url,
         repo,
     )
     .await?;

@@ -7,7 +7,13 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::{convert::TryFrom, fmt::Display};
+
+pub(crate) fn apply_decimals(num: impl Borrow<BigDecimal>, dec: impl Into<i64>) -> BigDecimal {
+    let dec = dec.into();
+    (num.borrow() / (10i64.pow(dec as u32))).with_scale(dec)
+}
 
 #[derive(Debug)]
 struct QsError(serde_qs::Error);

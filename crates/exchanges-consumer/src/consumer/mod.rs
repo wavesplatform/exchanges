@@ -126,8 +126,6 @@ where
         .stream(starting_from_height, updates_per_request, max_duration)
         .await?;
 
-    let mut last_histogram_update_height = starting_from_height;
-
     loop {
         let mut start = Instant::now();
 
@@ -155,16 +153,6 @@ where
                 start.elapsed().as_millis(),
                 last_height
             );
-
-            if last_height > last_histogram_update_height + 300 {
-                info!("updating exchange transactions histogram.");
-                ops.update_exchange_transactions_histogram()?;
-
-                // info!("deleting old exchange transactions.");
-                // ops.delete_old_exchange_transactions()?;
-
-                last_histogram_update_height = last_height;
-            }
 
             Ok(())
         })?;
@@ -213,9 +201,9 @@ fn handle_updates<R: ConsumerRepoOperations>(
         .try_fold((), |_, update_item| match update_item {
             UpdatesItem::Blocks(bs) => {
                 squash_microblocks(storage)?;
-                handle_appends(storage, bs.as_ref())
+                handle_appends(storage, bs.as_ref(), false)
             }
-            UpdatesItem::Microblock(mba) => handle_appends(storage, &vec![mba.to_owned()]),
+            UpdatesItem::Microblock(mba) => handle_appends(storage, &vec![mba.to_owned()], true),
             UpdatesItem::Rollback(sig) => {
                 let block_uid = storage.get_block_uid(&sig)?;
                 rollback(storage, block_uid)
@@ -228,6 +216,7 @@ fn handle_updates<R: ConsumerRepoOperations>(
 fn handle_appends<R: ConsumerRepoOperations>(
     storage: &R,
     appends: &Vec<BlockMicroblockAppend>,
+    is_microblock: bool,
 ) -> Result<()> {
     let block_uids = storage.insert_blocks_or_microblocks(
         &appends
@@ -258,6 +247,10 @@ fn handle_appends<R: ConsumerRepoOperations>(
         .collect_vec();
 
     storage.insert_exchange_transactions(&txs_with_block_uids)?;
+
+    if !is_microblock {
+        storage.update_exchange_transactions_histogram()?;
+    }
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
 

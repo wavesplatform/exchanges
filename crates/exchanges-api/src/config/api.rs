@@ -15,6 +15,7 @@ struct ConfigFlat {
     #[serde(default = "default_metrics_port")]
     metrics_port: u16,
     rates_api_url: String,
+    assets_api_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,7 @@ pub struct Config {
     pub port: u16,
     pub metrics_port: u16,
     pub rates_api_url: String,
+    pub assets_api_url: String,
 }
 
 pub fn load() -> anyhow::Result<Config> {
@@ -31,5 +33,6 @@ pub fn load() -> anyhow::Result<Config> {
         port: api_config_flat.port,
         metrics_port: api_config_flat.metrics_port,
         rates_api_url: api_config_flat.rates_api_url,
+        assets_api_url: api_config_flat.assets_api_url,
     })
 }

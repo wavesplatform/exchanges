@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 fn default_updates_per_request() -> usize {
-    256
+    100
 }
 
 fn default_max_wait_time_in_secs() -> u64 {
