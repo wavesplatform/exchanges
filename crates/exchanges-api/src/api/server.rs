@@ -9,6 +9,7 @@ use crate::{
 };
 use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
+use shared::bigdecimal::round;
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
@@ -210,13 +211,19 @@ async fn interval_exchanges(
         let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
         let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
 
-        (*e).volume += apply_decimals(r.amount_sum, amount_dec) * amount_rate.data.rate.clone();
+        (*e).volume += round(
+            apply_decimals(r.amount_sum, amount_dec) * amount_rate.data.rate.clone(),
+            amount_dec,
+        );
         (*e).count += r.count.clone();
 
         let fee_rate_key = format!("{}/{}", r.fee_asset_id, fees_base_asset);
         let fee_rate = rates_map.get(&fee_rate_key).unwrap_or(&zero_rate);
 
-        (*e).fees += apply_decimals(r.fee_sum, fee_dec) * fee_rate.data.rate.clone();
+        (*e).fees += round(
+            apply_decimals(r.fee_sum, fee_dec) * fee_rate.data.rate.clone(),
+            fee_dec,
+        );
     }
 
     let mut items = vec![];
