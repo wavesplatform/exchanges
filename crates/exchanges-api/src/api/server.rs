@@ -256,51 +256,8 @@ async fn interval_exchanges(
     }
 
     if let (Some(min_date), Some(max_date)) = (min_date, max_date) {
-        let mut cur_date = max_date;
-        let mut n = 0;
-
-        while cur_date >= min_date {
-            if let Some(after) = req.after {
-                if n < (after as usize) {
-                    n += 1;
-
-                    match max_date.checked_sub_days(Days::new(n as u64)) {
-                        Some(d) => cur_date = d,
-                        _ => break,
-                    }
-
-                    continue;
-                }
-            }
-
-            let mut out_item = match histogram.get(&cur_date) {
-                Some(h) => h.clone(),
-                None => ExchangesAggregate::empty(cur_date),
-            };
-
-            out_item.uid = (n + 1) as i64;
-            last_cursor = (n + 1) as i64;
-
-            items.push(out_item);
-
-            match max_date.checked_sub_days(Days::new(n as u64)) {
-                Some(d) => cur_date = d,
-                _ => break,
-            }
-
-            if let (Some(after), Some(limit)) = (req.after, req.limit) {
-                if n + 1 >= (after + limit) as usize {
-                    has_next_page = histogram.get(&cur_date).is_some();
-                    break;
-                }
-            }
-
-            n += 1;
-        }
-    }
-
-    /*
-    let mut h_keys = histogram.keys().sorted().rev().enumerate();
+        let dates = date_interval(min_date, max_date);
+        let mut h_keys = dates.iter().enumerate();
 
         while let Some((n, h)) = h_keys.next() {
             if let Some(after) = req.after {
@@ -309,7 +266,11 @@ async fn interval_exchanges(
                 }
             }
 
-            let mut out_item = histogram.get(h).unwrap().clone();
+            let mut out_item = histogram
+                .get(h)
+                .cloned()
+                .unwrap_or(ExchangesAggregate::empty(*h));
+
             out_item.uid = (n + 1) as i64;
             last_cursor = (n + 1) as i64;
 
@@ -322,7 +283,7 @@ async fn interval_exchanges(
                 }
             }
         }
-    */
+    }
 
     let res = List {
         items,
@@ -333,4 +294,33 @@ async fn interval_exchanges(
     };
 
     Ok(res)
+}
+
+fn date_interval(min_date: NaiveDate, max_date: NaiveDate) -> Vec<NaiveDate> {
+    let mut out = vec![];
+    out.push(max_date);
+
+    let mut cur_date = match max_date.clone().checked_sub_days(Days::new(1)) {
+        Some(d) => d,
+        _ => return out,
+    };
+
+    while cur_date > min_date {
+        cur_date = match cur_date.clone().checked_sub_days(Days::new(1)) {
+            Some(d) => {
+                out.push(d.clone());
+                d
+            }
+            _ => return out,
+        };
+    }
+    out
+}
+
+#[test]
+fn date_interval_test() {
+    dbg!(date_interval(
+        NaiveDate::from_ymd(2023, 02, 25),
+        NaiveDate::from_ymd(2023, 03, 10)
+    ));
 }
