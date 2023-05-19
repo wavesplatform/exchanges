@@ -2,7 +2,7 @@ pub mod repo;
 pub mod server;
 
 use crate::error::{self, Error};
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
@@ -94,6 +94,20 @@ pub(crate) struct ExchangesAggregate {
     volume: BigDecimal,
     fees: BigDecimal,
     count: i64,
+}
+
+impl ExchangesAggregate {
+    pub fn empty(d: NaiveDate) -> Self {
+        Self {
+            uid: 0,
+            interval: Interval::Day1,
+            interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
+            interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
+            volume: BigDecimal::zero(),
+            fees: BigDecimal::zero(),
+            count: 0,
+        }
+    }
 }
 
 impl ExchangeAggregatesRequest {

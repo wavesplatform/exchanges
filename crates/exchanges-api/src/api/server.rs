@@ -8,6 +8,7 @@ use crate::{
     error::{self, Error},
 };
 use bigdecimal::{BigDecimal, Zero};
+use chrono::{Days, NaiveDate};
 use itertools::Itertools;
 use shared::bigdecimal::round;
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
@@ -175,16 +176,31 @@ async fn interval_exchanges(
         },
     };
 
+    let mut min_date = None::<NaiveDate>;
+    let mut max_date = None::<NaiveDate>;
+
     for r in db_items {
-        let e = histogram.entry(r.sum_date).or_insert(ExchangesAggregate {
-            uid: 0,
-            interval: Interval::Day1,
-            interval_start: r.sum_date.and_hms_opt(0, 0, 0).unwrap(),
-            interval_end: r.sum_date.and_hms_opt(23, 59, 59).unwrap(),
-            volume: BigDecimal::zero(),
-            fees: BigDecimal::zero(),
-            count: 0,
-        });
+        let e = histogram
+            .entry(r.sum_date)
+            .or_insert(ExchangesAggregate::empty(r.sum_date));
+
+        match min_date {
+            Some(d) => {
+                if d > r.sum_date {
+                    min_date = Some(r.sum_date)
+                }
+            }
+            None => min_date = Some(r.sum_date),
+        }
+
+        match max_date {
+            Some(d) => {
+                if d < r.sum_date {
+                    max_date = Some(r.sum_date)
+                }
+            }
+            None => max_date = Some(r.sum_date),
+        }
 
         let amount_dec = match assets_decimals.get(&r.amount_asset_id) {
             Some(d) => *d as i64,
@@ -230,28 +246,77 @@ async fn interval_exchanges(
     let mut last_cursor = 0;
     let mut has_next_page = false;
 
-    let mut h_keys = histogram.keys().sorted().rev().enumerate();
+    if req.block_timestamp_gte.is_some() {
+        min_date = Some(req.block_timestamp_gte.unwrap().date_naive());
+    }
 
-    while let Some((n, h)) = h_keys.next() {
-        if let Some(after) = req.after {
-            if n < (after as usize) {
-                continue;
+    if req.block_timestamp_lt.is_some() {
+        max_date = Some(req.block_timestamp_lt.unwrap().date_naive());
+    }
+
+    if let (Some(min_date), Some(max_date)) = (min_date, max_date) {
+        let mut cur_date = max_date;
+        let mut n = 0;
+
+        while cur_date >= min_date {
+            if let Some(after) = req.after {
+                if n < (after as usize) {
+                    n += 1;
+
+                    continue;
+                }
             }
-        }
 
-        let mut out_item = histogram.get(h).unwrap().clone();
-        out_item.uid = (n + 1) as i64;
-        last_cursor = (n + 1) as i64;
+            let mut out_item = match histogram.get(&cur_date) {
+                Some(h) => h.clone(),
+                None => ExchangesAggregate::empty(cur_date),
+            };
 
-        items.push(out_item);
+            out_item.uid = (n + 1) as i64;
+            last_cursor = (n + 1) as i64;
 
-        if let (Some(after), Some(limit)) = (req.after, req.limit) {
-            if n + 1 >= (after + limit) as usize {
-                has_next_page = h_keys.next().is_some();
-                break;
+            items.push(out_item);
+
+            match max_date.checked_sub_days(Days::new(n as u64)) {
+                Some(d) => cur_date = d,
+                _ => break,
             }
+
+            if let (Some(after), Some(limit)) = (req.after, req.limit) {
+                if n + 1 >= (after + limit) as usize {
+                    has_next_page = histogram.get(&cur_date).is_some();
+                    break;
+                }
+            }
+
+            n += 1;
         }
     }
+
+    /*
+    let mut h_keys = histogram.keys().sorted().rev().enumerate();
+
+        while let Some((n, h)) = h_keys.next() {
+            if let Some(after) = req.after {
+                if n < (after as usize) {
+                    continue;
+                }
+            }
+
+            let mut out_item = histogram.get(h).unwrap().clone();
+            out_item.uid = (n + 1) as i64;
+            last_cursor = (n + 1) as i64;
+
+            items.push(out_item);
+
+            if let (Some(after), Some(limit)) = (req.after, req.limit) {
+                if n + 1 >= (after + limit) as usize {
+                    has_next_page = h_keys.next().is_some();
+                    break;
+                }
+            }
+        }
+    */
 
     let res = List {
         items,
