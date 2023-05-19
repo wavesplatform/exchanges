@@ -270,7 +270,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         }
 
         let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
-                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum((tx.fee::Numeric * tx.amount / tx.order_amount)) fee_sum, count(*) tx_count
+                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
                                 from exchange_transactions tx
                                     inner join blocks_microblocks b on tx.block_uid = b.uid
                                 where

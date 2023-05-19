@@ -13,6 +13,7 @@ use shared::waves::Address;
 use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
 use waves_protobuf_schemas::waves::events::transaction_metadata::{ExchangeMetadata, Metadata};
+use waves_protobuf_schemas::waves::order::Side;
 use waves_protobuf_schemas::waves::signed_transaction::Transaction::{
     EthereumTransaction, WavesTransaction,
 };
@@ -265,7 +266,13 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
             data, timestamp, ..
         })) => {
             match data.as_ref() {
-                Some(Data::Exchange(ExchangeTransactionData { orders, amount, .. })) => {
+                Some(Data::Exchange(ExchangeTransactionData {
+                    orders,
+                    amount,
+                    buy_matcher_fee,
+                    sell_matcher_fee,
+                    ..
+                })) => {
                     let time_stamp = {
                         DateTime::<Utc>::from_utc(
                             NaiveDateTime::from_timestamp_opt(
@@ -300,9 +307,14 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                         let asset_pair =
                             order.asset_pair.as_ref().expect("order.asset_pair is None");
 
-                        let (fee_asset_id, fee) = match order.matcher_fee.as_ref() {
-                            Some(f) => (Some(get_asset_id(&f.asset_id)), Some(f.amount)),
-                            _ => (None, None),
+                        let fee_asset_id = match order.matcher_fee.as_ref() {
+                            Some(f) => Some(get_asset_id(&f.asset_id)),
+                            _ => None,
+                        };
+
+                        let fee = match order.order_side() {
+                            Side::Buy => Some(*buy_matcher_fee),
+                            Side::Sell => Some(*sell_matcher_fee),
                         };
 
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);

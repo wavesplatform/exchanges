@@ -123,6 +123,7 @@ async fn interval_exchanges(
     let req = ExchangeAggregatesRequest::default_merge(req)?;
 
     let db_items = repo.exchanges_aggregates(&req)?;
+
     let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
     let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
 
@@ -185,8 +186,8 @@ async fn interval_exchanges(
             .or_insert(ExchangesAggregate::empty(r.sum_date));
 
         match min_date {
-            Some(d) => {
-                if d > r.sum_date {
+            Some(min_d) => {
+                if min_d > r.sum_date {
                     min_date = Some(r.sum_date)
                 }
             }
@@ -194,8 +195,8 @@ async fn interval_exchanges(
         }
 
         match max_date {
-            Some(d) => {
-                if d < r.sum_date {
+            Some(max_d) => {
+                if max_d < r.sum_date {
                     max_date = Some(r.sum_date)
                 }
             }
@@ -262,6 +263,11 @@ async fn interval_exchanges(
             if let Some(after) = req.after {
                 if n < (after as usize) {
                     n += 1;
+
+                    match max_date.checked_sub_days(Days::new(n as u64)) {
+                        Some(d) => cur_date = d,
+                        _ => break,
+                    }
 
                     continue;
                 }
