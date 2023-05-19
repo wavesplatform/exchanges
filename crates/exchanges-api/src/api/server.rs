@@ -8,7 +8,6 @@ use crate::{
     error::{self, Error},
 };
 use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
 use itertools::Itertools;
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use wavesexchange_apis::{
@@ -115,8 +114,8 @@ pub async fn start(
 
 async fn interval_exchanges(
     repo: Arc<repo::PgRepo>,
-    rates: Arc<ApiHttpClient<RatesService>>,
-    assets: Arc<ApiHttpClient<AssetsService>>,
+    rates_client: Arc<ApiHttpClient<RatesService>>,
+    assets_client: Arc<ApiHttpClient<AssetsService>>,
     req: ExchangeAggregatesRequest,
 ) -> Result<List<ExchangesAggregate>, Rejection> {
     let req = ExchangeAggregatesRequest::default_merge(req)?;
@@ -126,26 +125,19 @@ async fn interval_exchanges(
     let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
 
     let mut asset_pairs: Vec<(&str, &str)> = vec![];
+    let mut assets: Vec<&str> = Vec::new();
 
     db_items.iter().for_each(|r| {
         asset_pairs.push((r.amount_asset_id.as_str(), volume_base_asset));
 
         asset_pairs.push((r.fee_asset_id.as_str(), fees_base_asset));
+
+        assets.push(r.amount_asset_id.as_str());
+        assets.push(r.fee_asset_id.as_str());
     });
 
-    let rates_map = rates
-        .rates(asset_pairs.into_iter().unique())
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|rate| Some((rate.pair.clone(), rate)))
-        .collect::<HashMap<_, _>>();
-
-    let asets = [volume_base_asset.clone(), fees_base_asset.clone()];
-
-    let assets_decimals = assets
-        .get(&asets, None, OutputFormat::Full, false)
+    let assets_decimals = assets_client
+        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
         .await
         .map_err(|e| Error::UpstreamAPIRequestError(e))?
         .data
@@ -156,32 +148,16 @@ async fn interval_exchanges(
         })
         .collect::<HashMap<_, _>>();
 
-    let amount_dec = match assets_decimals.get(volume_base_asset) {
-        Some(d) => *d as i64,
-        _ => {
-            // return Err(Error::UpstreamAPIBadResponse(format!(
-            //     "can't get decimals {} from asset service",
-            //     volume_base_asset
-            // ))
-            // .into());
-            8
-        }
-    };
+    let rates_map = rates_client
+        .rates(asset_pairs.into_iter().unique())
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|rate| Some((rate.pair.clone(), rate)))
+        .collect::<HashMap<_, _>>();
 
-    let fee_dec = match assets_decimals.get(fees_base_asset) {
-        Some(d) => *d as i64,
-        _ => {
-            // return Err(Error::UpstreamAPIBadResponse(format!(
-            //     "can't get decimals {} from asset service",
-            //     volume_base_asset
-            // ))
-            // .into());
-            8
-        }
-    };
-
-    // let rates_map: HashMap<String, Rate> = HashMap::new();
-    let mut histogram: HashMap<NaiveDate, ExchangesAggregate> = HashMap::new();
+    let mut histogram = HashMap::new();
 
     /*
         В rates получаются много пар которые не имеют курса.
@@ -198,7 +174,7 @@ async fn interval_exchanges(
         },
     };
 
-    db_items.iter().for_each(|r| {
+    for r in db_items {
         let e = histogram.entry(r.sum_date).or_insert(ExchangesAggregate {
             uid: 0,
             interval: Interval::Day1,
@@ -209,17 +185,39 @@ async fn interval_exchanges(
             count: 0,
         });
 
+        let amount_dec = match assets_decimals.get(&r.amount_asset_id) {
+            Some(d) => *d as i64,
+            _ => {
+                return Err(Error::UpstreamAPIBadResponse(format!(
+                    "can't get decimals {} from asset service",
+                    &r.amount_asset_id
+                ))
+                .into());
+            }
+        };
+
+        let fee_dec = match assets_decimals.get(&r.fee_asset_id) {
+            Some(d) => *d as i64,
+            _ => {
+                return Err(Error::UpstreamAPIBadResponse(format!(
+                    "can't get decimals {} from asset service",
+                    &r.fee_asset_id
+                ))
+                .into());
+            }
+        };
+
         let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
         let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
 
-        (*e).volume += r.amount_sum.clone() * amount_rate.data.rate.clone();
+        (*e).volume += apply_decimals(r.amount_sum, amount_dec) * amount_rate.data.rate.clone();
         (*e).count += r.count.clone();
 
         let fee_rate_key = format!("{}/{}", r.fee_asset_id, fees_base_asset);
         let fee_rate = rates_map.get(&fee_rate_key).unwrap_or(&zero_rate);
 
-        (*e).fees += r.fee_sum.clone() * fee_rate.data.rate.clone();
-    });
+        (*e).fees += apply_decimals(r.fee_sum, fee_dec) * fee_rate.data.rate.clone();
+    }
 
     let mut items = vec![];
     let mut last_cursor = 0;
@@ -237,9 +235,6 @@ async fn interval_exchanges(
         let mut out_item = histogram.get(h).unwrap().clone();
         out_item.uid = (n + 1) as i64;
         last_cursor = (n + 1) as i64;
-
-        out_item.volume = apply_decimals(out_item.volume, amount_dec);
-        out_item.fees = apply_decimals(out_item.fees, fee_dec);
 
         items.push(out_item);
 
