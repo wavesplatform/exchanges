@@ -298,12 +298,8 @@ async fn interval_exchanges(
 
 fn date_interval(min_date: NaiveDate, max_date: NaiveDate) -> Vec<NaiveDate> {
     let mut out = vec![];
+    let mut cur_date = max_date.clone();
     out.push(max_date);
-
-    let mut cur_date = match max_date.clone().checked_sub_days(Days::new(1)) {
-        Some(d) => d,
-        _ => return out,
-    };
 
     while cur_date > min_date {
         cur_date = match cur_date.clone().checked_sub_days(Days::new(1)) {

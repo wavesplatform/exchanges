@@ -3,7 +3,7 @@ pub mod server;
 
 use crate::error::{self, Error};
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -121,9 +121,18 @@ impl ExchangeAggregatesRequest {
             def.block_timestamp_gte = req.block_timestamp_gte;
         }
 
-        if req.block_timestamp_lt.is_some() {
-            def.block_timestamp_lt = req.block_timestamp_lt;
-        }
+        def.block_timestamp_lt = match req.block_timestamp_lt {
+            Some(d) => Some(d),
+            None => Some(
+                Utc::now()
+                    .with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            ),
+        };
 
         let mut senders = vec![];
 

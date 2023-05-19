@@ -274,7 +274,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
                                 from exchange_transactions tx
                                     inner join blocks_microblocks b on tx.block_uid = b.uid
                                 where
-                                tx.tx_date >= $1::Date
+                                tx.tx_date >= ($1::Date - ' 1 DAY'::Interval)
                                 and b.time_stamp is not null
                             group by 1,2,3,4
 
