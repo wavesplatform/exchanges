@@ -28,7 +28,7 @@ table! {
         tx_count -> Int8,
         sender -> Varchar,
         amount_asset_id -> Varchar,
-        amount_sum -> Int8,
+        amount_sum -> Numeric,
         fee_asset_id -> Varchar,
         fee_sum -> Numeric,
     }
