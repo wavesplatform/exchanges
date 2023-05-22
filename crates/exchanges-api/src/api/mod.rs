@@ -77,6 +77,7 @@ pub struct ExchangeAggregatesRequest {
     #[serde(rename = "block_timestamp__lt")]
     pub block_timestamp_lt: Option<DateTime<Utc>>,
     pub order_sender: Option<String>,
+    #[serde(rename = "order_sender__in")]
     pub order_sender_in: Option<Vec<String>>,
     pub volume_base_asset: Option<String>,
     pub fees_base_asset: Option<String>,
