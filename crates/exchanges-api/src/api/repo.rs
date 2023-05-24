@@ -1,14 +1,12 @@
+use super::{ExchangeAggregatesRequest, ExchangesAggregateDbRow};
 use crate::error::Error;
 use database::db::PgPool;
 use database::schema::exchange_transactions_grouped;
-
 use diesel::{
     dsl::*,
     prelude::*,
     sql_types::{BigInt, Numeric},
 };
-
-use super::{ExchangeAggregatesRequest, ExchangesAggregateDbRow};
 
 pub(crate) trait Repo {
     fn exchanges_aggregates(

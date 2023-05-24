@@ -1,13 +1,12 @@
 pub mod pg;
 
+use super::InsertableExchnageTx;
 use crate::consumer::PrevHandledHeight;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use database::schema::blocks_microblocks;
 use diesel::sql_types::{Int4, Timestamp};
 use std::collections::HashMap;
-
-use super::InsertableExchnageTx;
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub struct BlockHeightDate {

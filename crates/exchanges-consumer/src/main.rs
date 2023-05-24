@@ -9,7 +9,6 @@ use crate::consumer::storage::pg::PgConsumerRepo;
 use anyhow::Result;
 use database::db;
 use tokio::select;
-
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
 

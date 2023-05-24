@@ -12,13 +12,12 @@ use chrono::{Days, NaiveDate};
 use itertools::Itertools;
 use shared::bigdecimal::round;
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use warp::{Filter, Rejection};
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
     rates::dto::{Rate, RateData},
     AssetsService, HttpClient as ApiHttpClient, RatesService,
 };
-
-use warp::{Filter, Rejection};
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::{
     error::{error_handler_with_serde_qs, handler, internal, timeout, validation},
