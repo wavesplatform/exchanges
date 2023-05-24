@@ -284,11 +284,8 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                         )
                     };
 
-                    let mut tx_data = vec![];
-                    let mut prev_sender = None::<String>;
-
-                    //ExchangeTransaction have only 2 orders
-                    for (i, order) in orders.iter().enumerate() {
+                    // ExchangeTransaction have only 2 orders
+                    orders.into_iter().enumerate().map(|(i, order)| {
                         let sender_address = match &ann_tx.tx.meta.metadata {
                             Some(Metadata::Exchange(ExchangeMetadata {
                                 order_sender_addresses,
@@ -296,13 +293,6 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             })) => Address::new(&order_sender_addresses[i]).into_string(),
                             _ => panic!("tx_id:{} can't get sender address from Metadata::Exchange(ExchangeMetadata {{order_sender_addresses[{}]}})", ann_tx.tx.id, i),
                         };
-
-                        if let Some(ps) = prev_sender {
-                            if ps.eq(&sender_address) {
-                                // skip transactions where sell order and by order has same sender_address
-                                return vec![];
-                            }
-                        }
 
                         let asset_pair =
                             order.asset_pair.as_ref().expect("order.asset_pair is None");
@@ -319,9 +309,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
 
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
 
-                        prev_sender = Some(sender_address.clone());
-
-                        tx_data.push(InsertableExchnageTx {
+                        InsertableExchnageTx {
                             block_uid: ann_tx.block_uid,
                             tx_date: time_stamp.date_naive(),
                             tx_id: ann_tx.tx.id.clone(),
@@ -331,9 +319,8 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             order_amount: order.amount,
                             fee_asset_id: fee_asset_id,
                             fee,
-                        });
-                    }
-                    tx_data
+                        }
+                    }).collect()
                 }
                 _ => vec![],
             }
