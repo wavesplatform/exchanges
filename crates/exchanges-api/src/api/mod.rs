@@ -88,7 +88,6 @@ pub struct ExchangeAggregatesRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename = "interval_exchange")]
 pub(crate) struct ExchangesAggregate {
-    uid: i64,
     interval: Interval,
     interval_start: NaiveDateTime,
     interval_end: NaiveDateTime,
@@ -100,7 +99,6 @@ pub(crate) struct ExchangesAggregate {
 impl ExchangesAggregate {
     pub fn empty(d: NaiveDate) -> Self {
         Self {
-            uid: 0,
             interval: Interval::Day1,
             interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
             interval_end: d.and_hms_opt(23, 59, 59).unwrap(),

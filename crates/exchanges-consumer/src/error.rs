@@ -8,6 +8,4 @@ pub enum Error {
     StreamClosed(String),
     #[error("UpstreamAPIRequestError: {0}")]
     UpstreamAPIRequestError(#[from] wavesexchange_apis::Error),
-    #[error("UpstreamAPIBadResponse: {0}")]
-    UpstreamAPIBadResponse(String),
 }

@@ -4,8 +4,6 @@ impl Reject for Error {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Requested resource not found")]
-    NotFound,
     #[error("DbError: {0}")]
     DbError(#[from] diesel::result::Error),
     #[error("ConnectionPoolError: {0}")]

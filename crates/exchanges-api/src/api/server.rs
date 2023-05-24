@@ -1,7 +1,7 @@
 use super::{
     apply_decimals,
     repo::{self},
-    ExchangeAggregatesRequest, ExchangesAggregate, Interval,
+    ExchangeAggregatesRequest, ExchangesAggregate,
 };
 use crate::{
     api::repo::Repo,
@@ -19,9 +19,9 @@ use wavesexchange_apis::{
 };
 
 use warp::{Filter, Rejection};
-use wavesexchange_log::{debug, error, info, timer, warn};
+use wavesexchange_log::{error, info};
 use wavesexchange_warp::{
-    error::{error_handler_with_serde_qs, handler, internal, not_found, timeout, validation},
+    error::{error_handler_with_serde_qs, handler, internal, timeout, validation},
     log::access,
     pagination::{List, PageInfo},
     MetricsWarpBuilder,
@@ -74,7 +74,6 @@ pub async fn start(
             error!("{:?}", err);
             timeout(ERROR_CODES_PREFIX)
         }
-        error::Error::NotFound => not_found(ERROR_CODES_PREFIX),
         _ => {
             error!("{:?}", err);
             internal(ERROR_CODES_PREFIX)
@@ -163,9 +162,9 @@ async fn interval_exchanges(
     let mut histogram = HashMap::new();
 
     /*
-        В rates получаются много пар которые не имеют курса.
-        для таких пар в агрегации будут прибавляться 0
-        не знаю на сколько этоправильно
+        В rates получаются много пар, которые не имеют курса.
+        Для таких пар курс будет считаться 0.
+        На результат агрегации они влиять не будут.
     */
     let zero_rate = Rate {
         pair: "".to_owned(),
@@ -266,12 +265,11 @@ async fn interval_exchanges(
                 }
             }
 
-            let mut out_item = histogram
+            let out_item = histogram
                 .get(h)
                 .cloned()
                 .unwrap_or(ExchangesAggregate::empty(*h));
 
-            out_item.uid = (n + 1) as i64;
             last_cursor = (n + 1) as i64;
 
             items.push(out_item);
