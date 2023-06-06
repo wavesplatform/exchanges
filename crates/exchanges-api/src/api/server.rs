@@ -1,7 +1,8 @@
 use super::{
     apply_decimals,
     repo::{self},
-    ExchangeAggregatesRequest, ExchangesAggregate,
+    ExchangeAggregatesItem, ExchangeAggregatesRequest, IntervalExchangeItem,
+    IntervalExchangesRequest,
 };
 use crate::{
     api::repo::Repo,
@@ -81,7 +82,18 @@ pub async fn start(
 
     let create_serde_qs_config = || serde_qs::Config::new(5, false);
 
-    let handler = warp::path!("interval_exchanges")
+    let interval_exchanges_handler = warp::path!("interval_exchanges")
+        .and(warp::get())
+        .and(with_repo.clone())
+        .and(with_rates.clone())
+        .and(with_assets.clone())
+        .and(serde_qs::warp::query::<IntervalExchangesRequest>(
+            create_serde_qs_config(),
+        ))
+        .and_then(interval_exchanges)
+        .map(|res| warp::reply::json(&res));
+
+    let exchange_aggregates_handler = warp::path!("exchange_aggregates")
         .and(warp::get())
         .and(with_repo.clone())
         .and(with_rates.clone())
@@ -89,14 +101,15 @@ pub async fn start(
         .and(serde_qs::warp::query::<ExchangeAggregatesRequest>(
             create_serde_qs_config(),
         ))
-        .and_then(interval_exchanges)
+        .and_then(exchange_aggregates)
         .map(|res| warp::reply::json(&res));
 
     let log = warp::log::custom(access);
 
     info!("Starting web server at 0.0.0.0:{}", port);
 
-    let routes = handler
+    let routes = interval_exchanges_handler
+        .or(exchange_aggregates_handler)
         .recover(move |rej| {
             error_handler_with_serde_qs(ERROR_CODES_PREFIX, error_handler.clone())(rej)
         })
@@ -116,11 +129,11 @@ async fn interval_exchanges(
     repo: Arc<repo::PgRepo>,
     rates_client: Arc<ApiHttpClient<RatesService>>,
     assets_client: Arc<ApiHttpClient<AssetsService>>,
-    req: ExchangeAggregatesRequest,
-) -> Result<List<ExchangesAggregate>, Rejection> {
-    let req = ExchangeAggregatesRequest::default_merge(req)?;
+    req: IntervalExchangesRequest,
+) -> Result<List<IntervalExchangeItem>, Rejection> {
+    let req = IntervalExchangesRequest::default_merge(req)?;
 
-    let db_items = repo.exchanges_aggregates(&req)?;
+    let db_items = repo.interval_exchanges(&req)?;
 
     let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
     let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
@@ -150,7 +163,7 @@ async fn interval_exchanges(
         .collect::<HashMap<_, _>>();
 
     let rates_map = rates_client
-        .rates(asset_pairs.into_iter().unique())
+        .rates(asset_pairs.into_iter().unique(), req.block_timestamp_lt)
         .await
         .map_err(|e| Error::UpstreamAPIRequestError(e))?
         .data
@@ -181,7 +194,7 @@ async fn interval_exchanges(
     for r in db_items {
         let e = histogram
             .entry(r.sum_date)
-            .or_insert(ExchangesAggregate::empty(r.sum_date));
+            .or_insert(IntervalExchangeItem::empty(r.sum_date));
 
         match min_date {
             Some(min_d) => {
@@ -267,7 +280,7 @@ async fn interval_exchanges(
             let out_item = histogram
                 .get(h)
                 .cloned()
-                .unwrap_or(ExchangesAggregate::empty(*h));
+                .unwrap_or(IntervalExchangeItem::empty(*h));
 
             last_cursor = (n + 1) as i64;
 
@@ -293,6 +306,126 @@ async fn interval_exchanges(
     Ok(res)
 }
 
+async fn exchange_aggregates(
+    repo: Arc<repo::PgRepo>,
+    rates_client: Arc<ApiHttpClient<RatesService>>,
+    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    req: ExchangeAggregatesRequest,
+) -> Result<List<ExchangeAggregatesItem>, Rejection> {
+    let req = ExchangeAggregatesRequest::default_merge(req)?;
+
+    let db_items = repo.exchange_aggregates(&req)?;
+
+    let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
+    let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
+
+    let mut asset_pairs: Vec<(&str, &str)> = vec![];
+    let mut assets: Vec<&str> = Vec::new();
+
+    db_items.iter().for_each(|r| {
+        asset_pairs.push((r.amount_asset_id.as_str(), volume_base_asset));
+
+        asset_pairs.push((r.fee_asset_id.as_str(), fees_base_asset));
+
+        assets.push(r.amount_asset_id.as_str());
+        assets.push(r.fee_asset_id.as_str());
+    });
+
+    let assets_decimals = assets_client
+        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|info| match info.data {
+            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+
+    let rates_map = rates_client
+        .rates(asset_pairs.into_iter().unique(), req.block_timestamp_lt)
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|rate| Some((rate.pair.clone(), rate)))
+        .collect::<HashMap<_, _>>();
+
+    let mut histogram: HashMap<String, ExchangeAggregatesItem> = HashMap::new();
+
+    let zero_rate = Rate {
+        pair: "".to_owned(),
+        heuristics: vec![],
+        data: RateData {
+            rate: BigDecimal::zero(),
+            heuristic: None,
+            exchange: None,
+        },
+    };
+
+    for r in db_items {
+        let e = histogram
+            .entry(r.sender.clone())
+            .or_insert(ExchangeAggregatesItem::empty(r.sender.clone()));
+
+        let amount_dec = match assets_decimals.get(&r.amount_asset_id) {
+            Some(d) => *d as i64,
+            _ => {
+                return Err(Error::UpstreamAPIBadResponse(format!(
+                    "can't get decimals {} from asset service",
+                    &r.amount_asset_id
+                ))
+                .into());
+            }
+        };
+
+        let fee_dec = match assets_decimals.get(&r.fee_asset_id) {
+            Some(d) => *d as i64,
+            _ => {
+                return Err(Error::UpstreamAPIBadResponse(format!(
+                    "can't get decimals {} from asset service",
+                    &r.fee_asset_id
+                ))
+                .into());
+            }
+        };
+
+        let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
+        let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
+
+        (*e).volume += round(
+            apply_decimals(r.amount_sum, amount_dec) * amount_rate.data.rate.clone(),
+            amount_dec,
+        );
+        (*e).count += r.count.clone();
+
+        let fee_rate_key = format!("{}/{}", r.fee_asset_id, fees_base_asset);
+        let fee_rate = rates_map.get(&fee_rate_key).unwrap_or(&zero_rate);
+
+        (*e).fees += round(
+            apply_decimals(r.fee_sum, fee_dec) * fee_rate.data.rate.clone(),
+            fee_dec,
+        );
+    }
+
+    let items = histogram
+        .keys()
+        .sorted()
+        .map(|i| histogram.get(i).unwrap().clone())
+        .collect();
+
+    let res = List {
+        items,
+        page_info: PageInfo {
+            has_next_page: false,
+            last_cursor: None,
+        },
+    };
+
+    Ok(res)
+}
+
 fn date_interval(min_date: NaiveDate, max_date: NaiveDate) -> Vec<NaiveDate> {
     let mut out = vec![];
     let mut cur_date = max_date.clone();
@@ -308,12 +441,4 @@ fn date_interval(min_date: NaiveDate, max_date: NaiveDate) -> Vec<NaiveDate> {
         };
     }
     out
-}
-
-#[test]
-fn date_interval_test() {
-    dbg!(date_interval(
-        NaiveDate::from_ymd(2023, 02, 25),
-        NaiveDate::from_ymd(2023, 03, 10)
-    ));
 }
