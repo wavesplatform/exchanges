@@ -254,8 +254,15 @@ impl ExchangeAggregatesRequest {
     fn default_merge(req: Self) -> Result<Self, Error> {
         let mut def = Self::default();
 
-        if req.block_timestamp_gte.is_some() {
-            def.block_timestamp_gte = req.block_timestamp_gte;
+        match req.block_timestamp_gte {
+            Some(_) => def.block_timestamp_gte = req.block_timestamp_gte,
+            None => {
+                return Err(Error::ValidationError(
+                    "missing required param block_timestamp__gte".into(),
+                    None,
+                )
+                .into())
+            }
         }
 
         def.block_timestamp_lt = match req.block_timestamp_lt {
@@ -270,6 +277,23 @@ impl ExchangeAggregatesRequest {
                     .unwrap(),
             ),
         };
+
+        match (
+            def.block_timestamp_lt.as_ref(),
+            def.block_timestamp_gte.as_ref(),
+        ) {
+            (Some(lt), Some(gte)) => {
+                let diff = lt.signed_duration_since(gte.clone()).num_days();
+                if diff > 32 || diff < 1 {
+                    return Err(Error::ValidationError(
+                        "invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 ".into(),
+                        None,
+                    )
+                    .into());
+                }
+            }
+            _ => unreachable!(),
+        }
 
         let mut senders = vec![];
 
@@ -317,7 +341,9 @@ impl ExchangeAggregatesRequest {
 #[derive(Clone, Debug, Serialize)]
 pub struct ExchangeAggregatesAggFields {
     order_sender: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     amount_asset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     price_asset: Option<String>,
 }
 
