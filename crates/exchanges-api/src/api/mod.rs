@@ -282,7 +282,7 @@ impl ExchangeAggregatesRequest {
                 dbg!(&lt, &gte, &diff);
 
                 if diff > 33 || diff < 1 {
-                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 ");
+                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 days");
                 }
             }
             _ => unreachable!(),
