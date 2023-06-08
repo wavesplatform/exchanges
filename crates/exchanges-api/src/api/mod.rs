@@ -209,7 +209,7 @@ impl Default for IntervalExchangesRequest {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub enum ExchangeAggregatesGroupBy {
     #[serde(rename = "order_sender")]
     OrderSender,
@@ -279,9 +279,7 @@ impl ExchangeAggregatesRequest {
         ) {
             (Some(lt), Some(gte)) => {
                 let diff = lt.signed_duration_since(gte.clone()).num_days();
-                dbg!(&lt, &gte, &diff);
-
-                if diff > 33 || diff < 1 {
+                if diff > 33 || diff < 0 {
                     return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 days");
                 }
             }
@@ -321,6 +319,15 @@ impl ExchangeAggregatesRequest {
 
         if req.group_by.is_some() {
             def.group_by = req.group_by;
+        }
+
+        match def.group_by.as_ref() {
+            Some(g) => {
+                if g[0] != ExchangeAggregatesGroupBy::OrderSender {
+                    return validate_error("unimplemented");
+                }
+            }
+            _ => return validate_error("unimplemented"),
         }
 
         if req.after.is_some() {
