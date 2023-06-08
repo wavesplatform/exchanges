@@ -8,6 +8,7 @@ use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::{convert::TryFrom, fmt::Display};
 
 pub(crate) fn apply_decimals(num: impl Borrow<BigDecimal>, dec: impl Into<i64>) -> BigDecimal {
@@ -256,13 +257,7 @@ impl ExchangeAggregatesRequest {
 
         match req.block_timestamp_gte {
             Some(_) => def.block_timestamp_gte = req.block_timestamp_gte,
-            None => {
-                return Err(Error::ValidationError(
-                    "missing required param block_timestamp__gte".into(),
-                    None,
-                )
-                .into())
-            }
+            None => return validate_error("missing required param block_timestamp__gte"),
         }
 
         def.block_timestamp_lt = match req.block_timestamp_lt {
@@ -284,12 +279,10 @@ impl ExchangeAggregatesRequest {
         ) {
             (Some(lt), Some(gte)) => {
                 let diff = lt.signed_duration_since(gte.clone()).num_days();
-                if diff > 32 || diff < 1 {
-                    return Err(Error::ValidationError(
-                        "invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 ".into(),
-                        None,
-                    )
-                    .into());
+                dbg!(&lt, &gte, &diff);
+
+                if diff > 33 || diff < 1 {
+                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 ");
                 }
             }
             _ => unreachable!(),
@@ -368,4 +361,14 @@ impl ExchangeAggregatesItem {
             count: 0,
         }
     }
+}
+
+fn validate_error(err: &str) -> Result<ExchangeAggregatesRequest, Error> {
+    Err(Error::ValidationError(
+        err.into(),
+        Some(HashMap::from_iter(
+            [("reason".to_owned(), err.to_owned())].into_iter(),
+        )),
+    )
+    .into())
 }
