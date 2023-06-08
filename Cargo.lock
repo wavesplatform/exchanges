@@ -2660,8 +2660,8 @@ dependencies = [
 
 [[package]]
 name = "wavesexchange_apis"
-version = "0.1.25"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_apis/0.1.25#027fbf4adfc2e8ec2dbff7fcbb3c843a7059f356"
+version = "0.1.26"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_apis/0.1.26#405d7925f66a1687fdf0d641025234fd531488e4"
 dependencies = [
  "bigdecimal",
  "bs58",
