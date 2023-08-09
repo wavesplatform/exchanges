@@ -1,6 +1,6 @@
 use super::{BlockHeightDate, BlockMicroblock};
 pub use super::{ConsumerRepo, ConsumerRepoOperations};
-use crate::consumer::{InsertableExchnageTx, PrevHandledHeight};
+use crate::consumer::{InsertableExchangeTx, PrevHandledHeight};
 use crate::error::Error as AppError;
 use anyhow::{Error, Result};
 use chrono::{NaiveDate, NaiveDateTime};
@@ -163,7 +163,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn insert_exchange_transactions(&self, transactions: &Vec<InsertableExchnageTx>) -> Result<()> {
+    fn insert_exchange_transactions(&self, transactions: &Vec<InsertableExchangeTx>) -> Result<()> {
         transactions
             .to_owned()
             .chunks(4000)

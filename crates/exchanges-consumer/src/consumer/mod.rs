@@ -86,7 +86,7 @@ pub trait UpdatesSource {
 
 #[derive(Clone, Debug, Insertable)]
 #[table_name = "exchange_transactions"]
-pub struct InsertableExchnageTx {
+pub struct InsertableExchangeTx {
     block_uid: i64,
     tx_date: NaiveDate,
     tx_id: String,
@@ -172,7 +172,7 @@ fn handle_updates<R: ConsumerRepoOperations>(
                 info!("Handle block {}, height = {}", b.id, b.height);
                 let len = acc.len();
                 if acc.len() > 0 {
-                    match acc.iter_mut().nth(len as usize - 1).unwrap() {
+                    match acc.iter_mut().nth(len - 1).unwrap() {
                         UpdatesItem::Blocks(v) => {
                             v.push(b);
                             acc
@@ -258,7 +258,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
     Ok(())
 }
 
-fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
+fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
     match ann_tx.tx.data.transaction.as_ref() {
         None => vec![],
         Some(EthereumTransaction(_)) => vec![],
@@ -309,7 +309,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
 
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
 
-                        InsertableExchnageTx {
+                        InsertableExchangeTx {
                             block_uid: ann_tx.block_uid,
                             tx_date: time_stamp.date_naive(),
                             tx_id: ann_tx.tx.id.clone(),
@@ -317,7 +317,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             amount_asset_id,
                             amount: *amount,
                             order_amount: order.amount,
-                            fee_asset_id: fee_asset_id,
+                            fee_asset_id,
                             fee,
                         }
                     }).collect()
@@ -354,7 +354,6 @@ fn rollback<R: ConsumerRepoOperations>(storage: &R, block_uid: i64) -> Result<()
 }
 
 mod convert {
-
     pub(super) fn get_asset_id<I: AsRef<[u8]>>(input: I) -> String {
         if input.as_ref().is_empty() {
             "WAVES".to_owned()

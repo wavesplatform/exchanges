@@ -1,6 +1,6 @@
 pub mod pg;
 
-use super::InsertableExchnageTx;
+use super::InsertableExchangeTx;
 use crate::consumer::PrevHandledHeight;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
@@ -61,7 +61,7 @@ pub trait ConsumerRepoOperations {
 
     fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
 
-    fn insert_exchange_transactions(&self, transactions: &Vec<InsertableExchnageTx>) -> Result<()>;
+    fn insert_exchange_transactions(&self, transactions: &Vec<InsertableExchangeTx>) -> Result<()>;
 
     fn update_exchange_transactions_block_references(&self, block_uid: &i64) -> Result<()>;
 

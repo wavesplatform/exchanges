@@ -58,8 +58,8 @@ pub async fn start(
     let arc_rates = Arc::new(rates_api_client);
     let with_rates = with_warp(arc_rates.clone());
 
-    let arc_asssets = Arc::new(assets_api_client);
-    let with_assets = with_warp(arc_asssets.clone());
+    let arc_assets = Arc::new(assets_api_client);
+    let with_assets = with_warp(arc_assets.clone());
 
     let error_handler = handler(ERROR_CODES_PREFIX, |err| match err {
         error::Error::ValidationError(_error_message, error_details) => {
