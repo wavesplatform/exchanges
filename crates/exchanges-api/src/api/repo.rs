@@ -1,10 +1,13 @@
 use super::{
     ExchangeAggregateDbRow, ExchangeAggregatesRequest, IntervalExchangeDbRow,
-    IntervalExchangesRequest,
+    IntervalExchangesRequest, MatcherExchangeAggregatesRequest, MatcherExchangeDbRow,
 };
+use crate::api::Interval;
 use crate::error::Error;
 use database::db::PgPool;
-use database::schema::exchange_transactions_grouped;
+use database::schema::{
+    exchange_transactions_daily_price_aggregates, exchange_transactions_grouped,
+};
 use diesel::{
     dsl::*,
     prelude::*,
@@ -21,6 +24,11 @@ pub(crate) trait Repo {
         &self,
         req: &ExchangeAggregatesRequest,
     ) -> Result<Vec<ExchangeAggregateDbRow>, Error>;
+
+    fn matcher_exchange_aggregates(
+        &self,
+        req: &MatcherExchangeAggregatesRequest,
+    ) -> Result<Vec<MatcherExchangeDbRow>, Error>;
 }
 
 pub struct PgRepo {
@@ -136,6 +144,52 @@ impl Repo for PgRepo {
 
         let rows = query
             .get_results::<ExchangeAggregateDbRow>(&mut self.pg_pool.get()?)
+            .map_err(|err| Error::DbError(err))?;
+
+        Ok(rows)
+    }
+
+    fn matcher_exchange_aggregates(
+        &self,
+        req: &MatcherExchangeAggregatesRequest,
+    ) -> Result<Vec<MatcherExchangeDbRow>, Error> {
+        let interval = req.interval.unwrap_or(Interval::Day1);
+        assert_eq!(interval, Interval::Day1, "Unsupported interval");
+
+        let mut query = exchange_transactions_daily_price_aggregates::table
+            .select((
+                exchange_transactions_daily_price_aggregates::agg_date,
+                exchange_transactions_daily_price_aggregates::amount_asset_id,
+                exchange_transactions_daily_price_aggregates::price_asset_id,
+                exchange_transactions_daily_price_aggregates::price_open,
+                exchange_transactions_daily_price_aggregates::price_close,
+                exchange_transactions_daily_price_aggregates::price_high,
+                exchange_transactions_daily_price_aggregates::price_low,
+            ))
+            .into_boxed();
+
+        if req.block_timestamp_gte.is_some() {
+            query = query.filter(
+                exchange_transactions_daily_price_aggregates::agg_date.ge(req
+                    .block_timestamp_gte
+                    .unwrap()
+                    .naive_utc()
+                    .date()),
+            );
+        }
+
+        if req.block_timestamp_lt.is_some() {
+            query = query.filter(
+                exchange_transactions_daily_price_aggregates::agg_date.le(req
+                    .block_timestamp_lt
+                    .unwrap()
+                    .naive_utc()
+                    .date()),
+            );
+        }
+
+        let rows = query
+            .get_results::<MatcherExchangeDbRow>(&mut self.pg_pool.get()?)
             .map_err(|err| Error::DbError(err))?;
 
         Ok(rows)

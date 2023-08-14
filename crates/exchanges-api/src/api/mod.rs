@@ -24,7 +24,7 @@ pub struct CursorQuery {
     pub after: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum Interval {
     #[serde(rename = "1d")]
     Day1,
@@ -84,6 +84,24 @@ pub(crate) struct IntervalExchangeDbRow {
     pub fee_sum: BigDecimal,
     #[sql_type = "Int8"]
     pub count: i64,
+}
+
+#[derive(Clone, Debug, Queryable, QueryableByName)]
+pub(crate) struct MatcherExchangeDbRow {
+    #[sql_type = "Date"]
+    pub agg_date: NaiveDate,
+    #[sql_type = "Text"]
+    pub amount_asset_id: String,
+    #[sql_type = "Text"]
+    pub price_asset_id: String,
+    #[sql_type = "Numeric"]
+    pub price_open: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub price_close: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub price_high: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub price_low: BigDecimal,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -378,4 +396,105 @@ fn validate_error(err: &str) -> Result<ExchangeAggregatesRequest, Error> {
         )),
     )
     .into())
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MatcherExchangeAggregatesRequest {
+    pub interval: Option<Interval>,
+    #[serde(rename = "block_timestamp__gte")]
+    pub block_timestamp_gte: Option<DateTime<Utc>>,
+    #[serde(rename = "block_timestamp__lt")]
+    pub block_timestamp_lt: Option<DateTime<Utc>>,
+    pub amount_asset: Option<String>,
+    pub price_asset: Option<String>,
+    pub limit: Option<u32>,
+    pub after: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename = "matcher_exchange_aggregates")]
+pub(crate) struct MatcherExchangeAggregatesItem {
+    interval: Interval,
+    interval_start: NaiveDateTime,
+    interval_end: NaiveDateTime,
+    price_open: BigDecimal,
+    price_close: BigDecimal,
+    price_high: BigDecimal,
+    price_low: BigDecimal,
+}
+
+impl MatcherExchangeAggregatesItem {
+    pub fn empty(d: NaiveDate) -> Self {
+        Self {
+            interval: Interval::Day1,
+            interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
+            interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
+            price_open: BigDecimal::zero(),
+            price_close: BigDecimal::zero(),
+            price_high: BigDecimal::zero(),
+            price_low: BigDecimal::zero(),
+        }
+    }
+}
+
+impl MatcherExchangeAggregatesRequest {
+    fn default_merge(req: Self) -> Result<Self, Error> {
+        let mut def = Self::default();
+
+        if req.interval.is_some() {
+            def.interval = req.interval;
+        }
+
+        if req.block_timestamp_gte.is_some() {
+            def.block_timestamp_gte = req.block_timestamp_gte;
+        }
+
+        def.block_timestamp_lt = match req.block_timestamp_lt {
+            Some(d) => Some(d),
+            None => Some(
+                Utc::now()
+                    .with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            ),
+        };
+
+        if req.amount_asset.is_some() {
+            def.amount_asset = req.amount_asset;
+        }
+
+        if req.price_asset.is_some() {
+            def.price_asset = req.price_asset;
+        }
+
+        let lim = 100 as u32;
+        if req.limit.is_some() {
+            def.limit = Some(lim.min(req.limit.unwrap()));
+        } else {
+            def.limit = Some(lim)
+        }
+
+        if req.after.is_some() {
+            def.after = req.after;
+        }
+
+        Ok(def)
+    }
+}
+
+impl Default for MatcherExchangeAggregatesRequest {
+    fn default() -> Self {
+        Self {
+            interval: Some("1d".try_into().unwrap()),
+            block_timestamp_gte: None,
+            block_timestamp_lt: None,
+            amount_asset: None,
+            price_asset: None,
+            limit: Some(100),
+            after: Some(0),
+        }
+    }
 }

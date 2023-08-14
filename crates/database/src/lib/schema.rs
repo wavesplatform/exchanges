@@ -36,8 +36,21 @@ table! {
     }
 }
 
+table! {
+     exchange_transactions_daily_price_aggregates(agg_date) {
+        agg_date -> Date,
+        amount_asset_id -> Varchar,
+        price_asset_id -> Varchar,
+        price_open -> Numeric,
+        price_close -> Numeric,
+        price_high -> Numeric,
+        price_low -> Numeric,
+    }
+}
+
 allow_tables_to_appear_in_same_query!(
     blocks_microblocks,
     exchange_transactions,
-    exchange_transactions_grouped
+    exchange_transactions_grouped,
+    exchange_transactions_daily_price_aggregates
 );

@@ -2,7 +2,7 @@ use super::{
     apply_decimals,
     repo::{self},
     ExchangeAggregatesItem, ExchangeAggregatesRequest, IntervalExchangeItem,
-    IntervalExchangesRequest,
+    IntervalExchangesRequest, MatcherExchangeAggregatesItem, MatcherExchangeAggregatesRequest,
 };
 use crate::{
     api::repo::Repo,
@@ -104,12 +104,23 @@ pub async fn start(
         .and_then(exchange_aggregates)
         .map(|res| warp::reply::json(&res));
 
+    let matcher_exchange_aggregates_handler = warp::path!("matcher_exchange_aggregates")
+        .and(warp::get())
+        .and(with_repo.clone())
+        .and(with_assets.clone())
+        .and(serde_qs::warp::query::<MatcherExchangeAggregatesRequest>(
+            create_serde_qs_config(),
+        ))
+        .and_then(matcher_exchange_aggregates)
+        .map(|res| warp::reply::json(&res));
+
     let log = warp::log::custom(access);
 
     info!("Starting web server at 0.0.0.0:{}", port);
 
     let routes = interval_exchanges_handler
         .or(exchange_aggregates_handler)
+        .or(matcher_exchange_aggregates_handler)
         .recover(move |rej| {
             error_handler_with_serde_qs(ERROR_CODES_PREFIX, error_handler.clone())(rej)
         })
@@ -414,6 +425,69 @@ async fn exchange_aggregates(
         .sorted()
         .map(|i| histogram.get(i).unwrap().clone())
         .collect();
+
+    let res = List {
+        items,
+        page_info: PageInfo {
+            has_next_page: false,
+            last_cursor: None,
+        },
+    };
+
+    Ok(res)
+}
+
+async fn matcher_exchange_aggregates(
+    repo: Arc<repo::PgRepo>,
+    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    req: MatcherExchangeAggregatesRequest,
+) -> Result<List<MatcherExchangeAggregatesItem>, Rejection> {
+    let req = MatcherExchangeAggregatesRequest::default_merge(req)?;
+
+    let db_items = repo.matcher_exchange_aggregates(&req)?;
+
+    let mut assets: Vec<&str> = Vec::new();
+
+    db_items.iter().for_each(|r| {
+        assets.push(r.amount_asset_id.as_str());
+        assets.push(r.price_asset_id.as_str());
+    });
+
+    let assets_decimals = assets_client
+        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|info| match info.data {
+            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut items = vec![];
+
+    for r in db_items {
+        let price_dec = match assets_decimals.get(&r.price_asset_id) {
+            Some(d) => *d as i64,
+            _ => {
+                return Err(Error::UpstreamAPIBadResponse(format!(
+                    "can't get decimals {} from asset service",
+                    &r.price_asset_id
+                ))
+                .into());
+            }
+        };
+
+        let mut item = MatcherExchangeAggregatesItem::empty(r.agg_date);
+
+        item.price_open = apply_decimals(r.price_open, price_dec);
+        item.price_close = apply_decimals(r.price_close, price_dec);
+        item.price_high = apply_decimals(r.price_high, price_dec);
+        item.price_low = apply_decimals(r.price_low, price_dec);
+
+        items.push(item);
+    }
 
     let res = List {
         items,
