@@ -22,6 +22,7 @@ struct ConfigFlat {
     updates_per_request: usize,
     #[serde(default = "default_max_wait_time_in_secs")]
     max_wait_time_in_secs: u64,
+    matcher_address: String,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,7 @@ pub struct Config {
     pub starting_height: u32,
     pub updates_per_request: usize,
     pub max_wait_time_in_secs: u64,
+    pub matcher_address: String,
 }
 
 pub fn load() -> anyhow::Result<Config> {
@@ -42,5 +44,6 @@ pub fn load() -> anyhow::Result<Config> {
         starting_height: config_flat.starting_height,
         updates_per_request: config_flat.updates_per_request,
         max_wait_time_in_secs: config_flat.max_wait_time_in_secs,
+        matcher_address: config_flat.matcher_address,
     })
 }

@@ -8,6 +8,7 @@ mod error;
 use crate::consumer::storage::pg::PgConsumerRepo;
 use anyhow::Result;
 use database::db;
+use std::sync::Arc;
 use tokio::select;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
@@ -33,6 +34,7 @@ async fn main() -> Result<()> {
         storage,
         config.consumer.updates_per_request,
         config.consumer.max_wait_time_in_secs,
+        Arc::new(config.consumer.matcher_address),
     );
 
     let metrics = MetricsWarpBuilder::new()

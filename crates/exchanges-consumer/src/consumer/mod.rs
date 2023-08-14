@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use database::schema::exchange_transactions;
 use itertools::Itertools;
 use shared::waves::Address;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc::Receiver;
 use waves_protobuf_schemas::waves::events::transaction_metadata::{ExchangeMetadata, Metadata};
 use waves_protobuf_schemas::waves::order::Side;
@@ -106,6 +106,7 @@ pub async fn start<T, R>(
     storage: R,
     updates_per_request: usize,
     max_wait_time_in_secs: u64,
+    matcher_address: Arc<String>,
 ) -> Result<()>
 where
     T: UpdatesSource + Send + Sync + 'static,
@@ -145,10 +146,12 @@ where
 
         let last_height = updates_with_height.last_height;
 
+        let matcher_address = matcher_address.clone();
+
         start = Instant::now();
 
         storage.transaction(|ops| {
-            handle_updates(updates_with_height, ops)?;
+            handle_updates(updates_with_height, ops, matcher_address)?;
 
             info!(
                 "{} updates were handled in {:?} ms. Last updated height is {}.",
@@ -165,6 +168,7 @@ where
 fn handle_updates<R: ConsumerRepoOperations>(
     updates_with_height: BlockchainUpdatesWithLastHeight,
     storage: &R,
+    matcher_address: Arc<String>,
 ) -> Result<()> {
     updates_with_height
         .updates
@@ -204,9 +208,14 @@ fn handle_updates<R: ConsumerRepoOperations>(
         .try_fold((), |_, update_item| match update_item {
             UpdatesItem::Blocks(bs) => {
                 squash_microblocks(storage)?;
-                handle_appends(storage, bs.as_ref(), false)
+                handle_appends(storage, bs.as_ref(), false, matcher_address.clone())
             }
-            UpdatesItem::Microblock(mba) => handle_appends(storage, &vec![mba.to_owned()], true),
+            UpdatesItem::Microblock(mba) => handle_appends(
+                storage,
+                &vec![mba.to_owned()],
+                true,
+                matcher_address.clone(),
+            ),
             UpdatesItem::Rollback(sig) => {
                 let block_uid = storage.get_block_uid(&sig)?;
                 rollback(storage, block_uid)
@@ -220,6 +229,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
     storage: &R,
     appends: &Vec<BlockMicroblockAppend>,
     is_microblock: bool,
+    matcher_address: Arc<String>,
 ) -> Result<()> {
     let block_uids = storage.insert_blocks_or_microblocks(
         &appends
@@ -252,7 +262,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
     storage.insert_exchange_transactions(&txs_with_block_uids)?;
 
     if !is_microblock {
-        storage.update_exchange_transactions_histogram()?;
+        storage.update_exchange_tx_aggregates(matcher_address)?;
     }
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
