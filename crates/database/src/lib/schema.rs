@@ -14,6 +14,8 @@ table! {
         tx_date -> Date,
         tx_id -> Varchar,
         sender -> Varchar,
+        price_asset_id -> Varchar,
+        price -> Int8,
         amount_asset_id -> Varchar,
         amount -> Int8,
         order_amount -> Int8,

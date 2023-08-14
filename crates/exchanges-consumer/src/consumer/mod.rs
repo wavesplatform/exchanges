@@ -91,6 +91,8 @@ pub struct InsertableExchangeTx {
     tx_date: NaiveDate,
     tx_id: String,
     sender: String,
+    price_asset_id: String,
+    price: i64,
     amount_asset_id: String,
     amount: i64,
     order_amount: i64,
@@ -269,6 +271,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                 Some(Data::Exchange(ExchangeTransactionData {
                     orders,
                     amount,
+                    price,
                     buy_matcher_fee,
                     sell_matcher_fee,
                     ..
@@ -308,12 +311,15 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                         };
 
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
+                        let price_asset_id = get_asset_id(&asset_pair.price_asset_id);
 
                         InsertableExchangeTx {
                             block_uid: ann_tx.block_uid,
                             tx_date: time_stamp.date_naive(),
                             tx_id: ann_tx.tx.id.clone(),
                             sender: sender_address,
+                            price_asset_id,
+                            price: *price,
                             amount_asset_id,
                             amount: *amount,
                             order_amount: order.amount,
