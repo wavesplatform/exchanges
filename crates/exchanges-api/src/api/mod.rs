@@ -405,8 +405,6 @@ pub struct MatcherExchangeAggregatesRequest {
     pub block_timestamp_gte: Option<DateTime<Utc>>,
     #[serde(rename = "block_timestamp__lt")]
     pub block_timestamp_lt: Option<DateTime<Utc>>,
-    pub amount_asset: Option<String>,
-    pub price_asset: Option<String>,
     pub limit: Option<u32>,
     pub after: Option<u32>,
 }
@@ -414,6 +412,8 @@ pub struct MatcherExchangeAggregatesRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename = "matcher_exchange_aggregates")]
 pub(crate) struct MatcherExchangeAggregatesItem {
+    amount_asset: String,
+    price_asset: String,
     interval: Interval,
     interval_start: NaiveDateTime,
     interval_end: NaiveDateTime,
@@ -424,8 +424,10 @@ pub(crate) struct MatcherExchangeAggregatesItem {
 }
 
 impl MatcherExchangeAggregatesItem {
-    pub fn empty(d: NaiveDate) -> Self {
+    pub fn empty(amount_asset: String, price_asset: String, d: NaiveDate) -> Self {
         Self {
+            amount_asset,
+            price_asset,
             interval: Interval::Day1,
             interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
             interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
@@ -462,14 +464,6 @@ impl MatcherExchangeAggregatesRequest {
             ),
         };
 
-        if req.amount_asset.is_some() {
-            def.amount_asset = req.amount_asset;
-        }
-
-        if req.price_asset.is_some() {
-            def.price_asset = req.price_asset;
-        }
-
         let lim = 100 as u32;
         if req.limit.is_some() {
             def.limit = Some(lim.min(req.limit.unwrap()));
@@ -491,8 +485,6 @@ impl Default for MatcherExchangeAggregatesRequest {
             interval: Some("1d".try_into().unwrap()),
             block_timestamp_gte: None,
             block_timestamp_lt: None,
-            amount_asset: None,
-            price_asset: None,
             limit: Some(100),
             after: Some(0),
         }

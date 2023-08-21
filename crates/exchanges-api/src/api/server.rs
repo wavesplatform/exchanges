@@ -479,7 +479,8 @@ async fn matcher_exchange_aggregates(
             }
         };
 
-        let mut item = MatcherExchangeAggregatesItem::empty(r.agg_date);
+        let mut item =
+            MatcherExchangeAggregatesItem::empty(r.amount_asset_id, r.price_asset_id, r.agg_date);
 
         item.price_open = apply_decimals(r.price_open, price_dec);
         item.price_close = apply_decimals(r.price_close, price_dec);
