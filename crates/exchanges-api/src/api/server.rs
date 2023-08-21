@@ -12,7 +12,11 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{Days, NaiveDate};
 use itertools::Itertools;
 use shared::bigdecimal::round;
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::Arc,
+};
 use warp::{Filter, Rejection};
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
@@ -446,15 +450,15 @@ async fn matcher_exchange_aggregates(
 
     let db_items = repo.matcher_exchange_aggregates(&req)?;
 
-    let mut assets: Vec<&str> = Vec::new();
+    let mut assets = HashSet::new();
 
     db_items.iter().for_each(|r| {
-        assets.push(r.amount_asset_id.as_str());
-        assets.push(r.price_asset_id.as_str());
+        assets.insert(r.amount_asset_id.as_str());
+        assets.insert(r.price_asset_id.as_str());
     });
 
     let assets_decimals = assets_client
-        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
+        .get(assets.into_iter(), None, OutputFormat::Full, false)
         .await
         .map_err(|e| Error::UpstreamAPIRequestError(e))?
         .data
@@ -465,23 +469,27 @@ async fn matcher_exchange_aggregates(
         })
         .collect::<HashMap<_, _>>();
 
+    let get_decimals = |asset_id: &str| -> Result<i64, Error> {
+        match assets_decimals.get(asset_id) {
+            Some(d) => Ok(*d as i64),
+            None => Err(Error::UpstreamAPIBadResponse(format!(
+                "can't get decimals {} from asset service",
+                asset_id
+            ))
+            .into()),
+        }
+    };
+
     let mut items = vec![];
 
     for r in db_items {
-        let price_dec = match assets_decimals.get(&r.price_asset_id) {
-            Some(d) => *d as i64,
-            _ => {
-                return Err(Error::UpstreamAPIBadResponse(format!(
-                    "can't get decimals {} from asset service",
-                    &r.price_asset_id
-                ))
-                .into());
-            }
-        };
+        let price_dec = get_decimals(&r.price_asset_id)?;
+        let amount_dec = get_decimals(&r.amount_asset_id)?;
 
         let mut item =
             MatcherExchangeAggregatesItem::empty(r.amount_asset_id, r.price_asset_id, r.agg_date);
 
+        item.total_amount = apply_decimals(r.total_amount, amount_dec);
         item.price_open = apply_decimals(r.price_open, price_dec);
         item.price_close = apply_decimals(r.price_close, price_dec);
         item.price_high = apply_decimals(r.price_high, price_dec);

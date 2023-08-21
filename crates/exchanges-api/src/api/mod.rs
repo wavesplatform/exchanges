@@ -95,6 +95,8 @@ pub(crate) struct MatcherExchangeDbRow {
     #[sql_type = "Text"]
     pub price_asset_id: String,
     #[sql_type = "Numeric"]
+    pub total_amount: BigDecimal,
+    #[sql_type = "Numeric"]
     pub price_open: BigDecimal,
     #[sql_type = "Numeric"]
     pub price_close: BigDecimal,
@@ -417,6 +419,7 @@ pub(crate) struct MatcherExchangeAggregatesItem {
     interval: Interval,
     interval_start: NaiveDateTime,
     interval_end: NaiveDateTime,
+    total_amount: BigDecimal,
     price_open: BigDecimal,
     price_close: BigDecimal,
     price_high: BigDecimal,
@@ -431,6 +434,7 @@ impl MatcherExchangeAggregatesItem {
             interval: Interval::Day1,
             interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
             interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
+            total_amount: BigDecimal::zero(),
             price_open: BigDecimal::zero(),
             price_close: BigDecimal::zero(),
             price_high: BigDecimal::zero(),

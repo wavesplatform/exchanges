@@ -41,6 +41,7 @@ table! {
         agg_date -> Date,
         amount_asset_id -> Varchar,
         price_asset_id -> Varchar,
+        total_amount -> Numeric,
         price_open -> Numeric,
         price_close -> Numeric,
         price_high -> Numeric,

@@ -161,6 +161,7 @@ impl Repo for PgRepo {
                 exchange_transactions_daily_price_aggregates::agg_date,
                 exchange_transactions_daily_price_aggregates::amount_asset_id,
                 exchange_transactions_daily_price_aggregates::price_asset_id,
+                exchange_transactions_daily_price_aggregates::total_amount,
                 exchange_transactions_daily_price_aggregates::price_open,
                 exchange_transactions_daily_price_aggregates::price_close,
                 exchange_transactions_daily_price_aggregates::price_high,
