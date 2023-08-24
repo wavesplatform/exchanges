@@ -6,7 +6,7 @@ use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use database::schema::blocks_microblocks;
 use diesel::sql_types::{Int4, Timestamp};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub struct BlockHeightDate {
@@ -65,7 +65,7 @@ pub trait ConsumerRepoOperations {
 
     fn update_exchange_transactions_block_references(&self, block_uid: &i64) -> Result<()>;
 
-    fn update_exchange_tx_aggregates(&self, matcher_address: Arc<String>) -> Result<()>;
+    fn update_exchange_tx_aggregates(&self) -> Result<()>;
 
     fn delete_old_exchange_transactions(&self) -> Result<()>;
 

@@ -7,9 +7,9 @@ use chrono::{NaiveDate, NaiveDateTime};
 use database::db::{PgPool, PooledPgConnection};
 use database::schema::{blocks_microblocks, exchange_transactions};
 use diesel::dsl::sql;
-use diesel::sql_types::{BigInt, Date, Nullable, Text, Timestamp};
+use diesel::sql_types::{BigInt, Date, Nullable, Timestamp};
 use diesel::{prelude::*, sql_query};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// Consumer's repo implementation that uses Postgres database as the storage.
 ///
@@ -257,7 +257,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         Ok(res[0])
     }
 
-    fn update_exchange_tx_aggregates(&self, matcher_address: Arc<String>) -> Result<()> {
+    fn update_exchange_tx_aggregates(&self) -> Result<()> {
         let last_dates = exchange_transactions::table
             .select(exchange_transactions::tx_date)
             .order(exchange_transactions::tx_date.desc())
@@ -304,7 +304,6 @@ impl ConsumerRepoOperations for PooledPgConnection {
             where
                   tx.tx_date >= ($1::Date - ' 1 DAY'::Interval)
               and b.time_stamp is not null
-              and tx.sender = $2
             group by 1,2,3
 
             on conflict on constraint exchange_transactions_daily_price_aggregates_pkey
@@ -317,9 +316,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         "#;
 
         let last_date = last_dates.first().expect("empty date");
-        let q = sql_query(sql)
-            .bind::<Date, _>(&last_date)
-            .bind::<Text, _>(matcher_address.as_str());
+        let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
             let context = format!("Cannot save exchange_transactions_grouped: {}", err);
