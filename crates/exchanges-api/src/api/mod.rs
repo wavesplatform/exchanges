@@ -106,6 +106,20 @@ pub(crate) struct MatcherExchangeDbRow {
     pub price_low: BigDecimal,
 }
 
+#[derive(Clone, Debug, Queryable, QueryableByName)]
+pub(crate) struct PnlDbRow {
+    #[sql_type = "Date"]
+    pub agg_date: NaiveDate,
+    #[sql_type = "Text"]
+    pub amount_asset_id: String,
+    #[sql_type = "Text"]
+    pub price_asset_id: String,
+    #[sql_type = "Numeric"]
+    pub delta_base_vol: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub delta_quote_vol: BigDecimal,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct IntervalExchangesRequest {
     pub interval: Option<Interval>,
@@ -491,6 +505,117 @@ impl Default for MatcherExchangeAggregatesRequest {
             block_timestamp_lt: None,
             limit: Some(100),
             after: Some(0),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PnlAggregatesRequest {
+    pub sender: String,
+    pub interval: Option<Interval>,
+    #[serde(rename = "block_timestamp__gte")]
+    pub block_timestamp_gte: Option<DateTime<Utc>>,
+    #[serde(rename = "block_timestamp__lt")]
+    pub block_timestamp_lt: Option<DateTime<Utc>>,
+    pub pnl_asset: Option<String>,
+    pub limit: Option<u32>,
+    pub after: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename = "pnl_aggregates")]
+pub(crate) struct PnlAggregatesItem {
+    interval: Interval,
+    interval_start: NaiveDateTime,
+    interval_end: NaiveDateTime,
+    pnl: BigDecimal,
+}
+
+impl PnlAggregatesItem {
+    pub fn empty(d: NaiveDate) -> Self {
+        Self {
+            interval: Interval::Day1,
+            interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
+            interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
+            pnl: BigDecimal::zero(),
+        }
+    }
+}
+
+impl PnlAggregatesRequest {
+    fn default_merge(req: Self) -> Result<Self, Error> {
+        let mut def = Self::default();
+
+        def.sender = req.sender;
+
+        if req.interval.is_some() {
+            def.interval = req.interval;
+        }
+
+        if req.block_timestamp_gte.is_some() {
+            def.block_timestamp_gte = req.block_timestamp_gte;
+        }
+
+        def.block_timestamp_lt = match req.block_timestamp_lt {
+            Some(d) => Some(d),
+            None => Some(
+                Utc::now()
+                    .with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            ),
+        };
+
+        if req.pnl_asset.is_some() {
+            def.pnl_asset = req.pnl_asset;
+        }
+
+        let lim = 1000 as u32;
+        if req.limit.is_some() {
+            def.limit = Some(lim.min(req.limit.unwrap()));
+        } else {
+            def.limit = Some(lim)
+        }
+
+        if req.after.is_some() {
+            def.after = req.after;
+        }
+
+        Ok(def)
+    }
+}
+
+impl Default for PnlAggregatesRequest {
+    fn default() -> Self {
+        Self {
+            sender: "".to_string(),
+            interval: Some("1d".try_into().unwrap()),
+            block_timestamp_gte: None,
+            block_timestamp_lt: None,
+            pnl_asset: Some("USD".to_string()),
+            limit: Some(1000),
+            after: Some(0),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct NaiveDateInterval {
+    interval: Interval,
+    interval_start: NaiveDateTime,
+    interval_end: NaiveDateTime,
+}
+
+impl NaiveDateInterval {
+    pub fn new(d: NaiveDate) -> Self {
+        //TODO add support for 1d, 7d, 30d
+        NaiveDateInterval {
+            interval: Interval::Day1,
+            interval_start: d.and_hms_opt(0, 0, 0).unwrap(),
+            interval_end: d.and_hms_opt(23, 59, 59).unwrap(),
         }
     }
 }

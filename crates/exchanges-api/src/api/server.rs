@@ -3,6 +3,7 @@ use super::{
     repo::{self},
     ExchangeAggregatesItem, ExchangeAggregatesRequest, IntervalExchangeItem,
     IntervalExchangesRequest, MatcherExchangeAggregatesItem, MatcherExchangeAggregatesRequest,
+    NaiveDateInterval, PnlAggregatesItem, PnlAggregatesRequest,
 };
 use crate::{
     api::repo::Repo,
@@ -15,6 +16,7 @@ use shared::bigdecimal::round;
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
+    iter::once,
     sync::Arc,
 };
 use warp::{Filter, Rejection};
@@ -118,6 +120,17 @@ pub async fn start(
         .and_then(matcher_exchange_aggregates)
         .map(|res| warp::reply::json(&res));
 
+    let pnl_aggregates_handler = warp::path!("pnl_aggregates")
+        .and(warp::get())
+        .and(with_repo.clone())
+        .and(with_rates.clone())
+        .and(with_assets.clone())
+        .and(serde_qs::warp::query::<PnlAggregatesRequest>(
+            create_serde_qs_config(),
+        ))
+        .and_then(pnl_aggregates)
+        .map(|res| warp::reply::json(&res));
+
     let log = warp::log::custom(access);
 
     info!("Starting web server at 0.0.0.0:{}", port);
@@ -125,6 +138,7 @@ pub async fn start(
     let routes = interval_exchanges_handler
         .or(exchange_aggregates_handler)
         .or(matcher_exchange_aggregates_handler)
+        .or(pnl_aggregates_handler)
         .recover(move |rej| {
             error_handler_with_serde_qs(ERROR_CODES_PREFIX, error_handler.clone())(rej)
         })
@@ -495,6 +509,125 @@ async fn matcher_exchange_aggregates(
         item.price_close = apply_decimals(r.price_close, price_dec);
         item.price_high = apply_decimals(r.price_high, price_dec);
         item.price_low = apply_decimals(r.price_low, price_dec);
+
+        items.push(item);
+    }
+
+    let res = List {
+        items,
+        page_info: PageInfo {
+            has_next_page: false,
+            last_cursor: None,
+        },
+    };
+
+    Ok(res)
+}
+
+async fn pnl_aggregates(
+    repo: Arc<repo::PgRepo>,
+    rates_client: Arc<ApiHttpClient<RatesService>>,
+    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    req: PnlAggregatesRequest,
+) -> Result<List<PnlAggregatesItem>, Rejection> {
+    let req = PnlAggregatesRequest::default_merge(req)?;
+
+    // Output currency, default USD
+    let out_asset = req.pnl_asset.as_ref().expect("output asset").as_str();
+
+    // Aggregates with fixed interval 1day
+    let db_items = repo.pnl_aggregates(&req)?;
+
+    let assets = db_items
+        .iter()
+        .map(|it| [it.amount_asset_id.as_str(), it.price_asset_id.as_str()])
+        .flatten()
+        .collect::<HashSet<_>>();
+
+    let assets_decimals = assets_client
+        .get(
+            assets.iter().map(|&a| a).chain(once(out_asset)),
+            None,
+            OutputFormat::Full,
+            false,
+        )
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|asset| match asset.data {
+            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+            _ => None,
+        })
+        .chain(once(("USD".to_string(), 2)))
+        .collect::<HashMap<_, _>>();
+
+    let get_decimals = |asset_id: &str| -> Result<i64, Error> {
+        match assets_decimals.get(asset_id) {
+            Some(d) => Ok(*d as i64),
+            None => Err(Error::UpstreamAPIBadResponse(format!(
+                "can't get decimals {} from asset service",
+                asset_id
+            ))
+            .into()),
+        }
+    };
+
+    struct Item<'a> {
+        interval: NaiveDateInterval,
+        /// Asset ID -> Volume (with applied decimals)
+        volumes: Vec<(&'a str, BigDecimal)>,
+    }
+
+    let mut daily = HashMap::new();
+    for row in &db_items {
+        let amount_dec = get_decimals(&row.amount_asset_id)?;
+        let price_dec = get_decimals(&row.price_asset_id)?;
+
+        let delta_base_vol = apply_decimals(&row.delta_base_vol, amount_dec);
+        let delta_quote_vol = apply_decimals(&row.delta_quote_vol, price_dec);
+
+        let entry = daily.entry(row.agg_date).or_insert_with(|| Item {
+            interval: NaiveDateInterval::new(row.agg_date),
+            volumes: vec![],
+        });
+        entry.volumes.push((&row.amount_asset_id, delta_base_vol));
+        entry.volumes.push((&row.price_asset_id, delta_quote_vol));
+    }
+
+    let mut items = vec![];
+
+    for date in daily.keys().sorted() {
+        let entry = &daily[date];
+
+        let rate_assets = entry.volumes.iter().map(|&(asset, _)| (asset, out_asset));
+
+        let assets_rates = rates_client
+            .rates(rate_assets, Some(entry.interval.interval_end.and_utc()))
+            .await
+            .map_err(Error::UpstreamAPIRequestError)?
+            .data
+            .into_iter()
+            .map(|rate| rate.data.rate);
+
+        let volumes_with_rates = entry
+            .volumes
+            .iter()
+            .zip(assets_rates)
+            .map(|(&(_, ref volume), rate)| (volume.clone(), rate));
+
+        let sum_pnl = volumes_with_rates.fold(BigDecimal::zero(), |acc, (volume, rate)| {
+            if rate > BigDecimal::zero() {
+                acc + volume / rate
+            } else {
+                acc
+            }
+        });
+
+        //TODO support intervals other than 1d - pass r.interval as parameter and use properly
+        let mut item = PnlAggregatesItem::empty(*date);
+
+        item.pnl = sum_pnl.with_scale(get_decimals(out_asset)?);
 
         items.push(item);
     }
