@@ -21,6 +21,7 @@ table! {
         order_amount -> Int8,
         fee_asset_id  -> Varchar,
         fee -> Int8,
+        buy_sell -> Int4,
     }
 }
 
@@ -49,9 +50,21 @@ table! {
     }
 }
 
+table! {
+     exchange_transactions_daily_by_sender_and_pair(agg_date) {
+        agg_date -> Date,
+        sender -> Varchar,
+        amount_asset_id -> Varchar,
+        price_asset_id -> Varchar,
+        delta_base_vol -> Numeric,
+        delta_quote_vol -> Numeric,
+    }
+}
+
 allow_tables_to_appear_in_same_query!(
     blocks_microblocks,
     exchange_transactions,
     exchange_transactions_grouped,
-    exchange_transactions_daily_price_aggregates
+    exchange_transactions_daily_price_aggregates,
+    exchange_transactions_daily_by_sender_and_pair
 );

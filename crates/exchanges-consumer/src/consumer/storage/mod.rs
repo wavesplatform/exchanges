@@ -65,7 +65,7 @@ pub trait ConsumerRepoOperations {
 
     fn update_exchange_transactions_block_references(&self, block_uid: &i64) -> Result<()>;
 
-    fn update_exchange_tx_aggregates(&self) -> Result<()>;
+    fn update_aggregates(&self) -> Result<()>;
 
     fn delete_old_exchange_transactions(&self) -> Result<()>;
 

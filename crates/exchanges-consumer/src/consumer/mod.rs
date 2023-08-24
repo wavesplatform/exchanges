@@ -99,6 +99,8 @@ pub struct InsertableExchangeTx {
     order_amount: i64,
     fee_asset_id: Option<String>,
     fee: Option<i64>,
+    /// +1 = Buy, -1 = Sell
+    buy_sell: i32,
 }
 
 pub async fn start<T, R>(
@@ -263,7 +265,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
     storage.insert_exchange_transactions(&txs_with_block_uids)?;
 
     if !is_microblock {
-        storage.update_exchange_tx_aggregates()?;
+        storage.update_aggregates()?;
     }
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
@@ -292,7 +294,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<Inse
                 })) => {
                     let tx_sender = Address::new(&ann_tx.tx.meta.sender_address);
                     if *tx_sender.into_string() != *matcher_address {
-                        debug!("ExchangeTx not from our matcher: {:?}", ann_tx.tx.id);
+                        trace!("ExchangeTx not from our matcher: {:?}", ann_tx.tx.id);
                         return vec![]; // Skip transactions from other matchers
                     }
 
@@ -330,6 +332,11 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<Inse
                             Side::Sell => Some(*sell_matcher_fee),
                         };
 
+                        let buy_sell = match order.order_side() {
+                            Side::Buy => 1,
+                            Side::Sell => -1,
+                        };
+
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
                         let price_asset_id = get_asset_id(&asset_pair.price_asset_id);
 
@@ -345,6 +352,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<Inse
                             order_amount: order.amount,
                             fee_asset_id,
                             fee,
+                            buy_sell,
                         }
                     }).collect()
                 }
