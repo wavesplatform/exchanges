@@ -1,14 +1,14 @@
 use super::{
-    ExchangeAggregateDbRow, ExchangeAggregatesRequest, IntervalExchangeDbRow,
+    error::Error, ExchangeAggregateDbRow, ExchangeAggregatesRequest, IntervalExchangeDbRow,
     IntervalExchangesRequest, MatcherExchangeAggregatesRequest, MatcherExchangeDbRow,
     PnlAggregatesRequest, PnlDbRow,
 };
-use crate::api::Interval;
-use crate::error::Error;
-use database::db::PgPool;
-use database::schema::{
-    exchange_transactions_daily_by_sender_and_pair, exchange_transactions_daily_price_aggregates,
-    exchange_transactions_grouped,
+use database::{
+    db::PgPool,
+    schema::{
+        exchange_transactions_daily_by_sender_and_pair,
+        exchange_transactions_daily_price_aggregates, exchange_transactions_grouped,
+    },
 };
 use diesel::{
     dsl::*,
@@ -157,9 +157,6 @@ impl Repo for PgRepo {
         &self,
         req: &MatcherExchangeAggregatesRequest,
     ) -> Result<Vec<MatcherExchangeDbRow>, Error> {
-        let interval = req.interval.unwrap_or(Interval::Day1);
-        assert_eq!(interval, Interval::Day1, "Unsupported interval");
-
         let mut query = exchange_transactions_daily_price_aggregates::table
             .select((
                 exchange_transactions_daily_price_aggregates::agg_date,
@@ -201,10 +198,6 @@ impl Repo for PgRepo {
     }
 
     fn pnl_aggregates(&self, req: &PnlAggregatesRequest) -> Result<Vec<PnlDbRow>, Error> {
-        let interval = req.interval.unwrap_or(Interval::Day1);
-        //TODO Need to support at least intervals: 1d, 7d, 30d
-        assert_eq!(interval, Interval::Day1, "Unsupported interval");
-
         let mut q = exchange_transactions_daily_by_sender_and_pair::table
             .select((
                 exchange_transactions_daily_by_sender_and_pair::agg_date,

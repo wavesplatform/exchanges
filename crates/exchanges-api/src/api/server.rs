@@ -1,19 +1,17 @@
 use super::{
     apply_decimals,
-    repo::{self},
-    ExchangeAggregatesItem, ExchangeAggregatesRequest, IntervalExchangeItem,
+    error::{self, Error},
+    repo::{self, Repo},
+    ExchangeAggregatesItem, ExchangeAggregatesRequest, Interval, IntervalExchangeItem,
     IntervalExchangesRequest, MatcherExchangeAggregatesItem, MatcherExchangeAggregatesRequest,
     NaiveDateInterval, PnlAggregatesItem, PnlAggregatesRequest,
 };
-use crate::{
-    api::repo::Repo,
-    error::{self, Error},
-};
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{Days, NaiveDate};
+use chrono::{Days, Duration, NaiveDate, Utc};
 use itertools::Itertools;
 use shared::bigdecimal::round;
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     convert::Infallible,
     iter::once,
@@ -532,6 +530,17 @@ async fn pnl_aggregates(
 ) -> Result<List<PnlAggregatesItem>, Rejection> {
     let req = PnlAggregatesRequest::default_merge(req)?;
 
+    let interval = req.interval.unwrap_or(Interval::Day1);
+    let start_date = req
+        .block_timestamp_gte
+        .unwrap_or_else(|| Utc::now())
+        .date_naive();
+    let end_date = req
+        .block_timestamp_lt
+        .unwrap_or_else(|| Utc::now())
+        .date_naive();
+    let intervals = generate_intervals(interval, start_date, end_date);
+
     // Output currency, default USD
     let out_asset = req.pnl_asset.as_ref().expect("output asset").as_str();
 
@@ -579,56 +588,76 @@ async fn pnl_aggregates(
         volumes: Vec<(&'a str, BigDecimal)>,
     }
 
-    let mut daily = HashMap::new();
+    let mut volumes = intervals
+        .into_iter()
+        .map(|interval| Item {
+            interval,
+            volumes: vec![],
+        })
+        .collect_vec();
+
     for row in &db_items {
         let amount_dec = get_decimals(&row.amount_asset_id)?;
         let price_dec = get_decimals(&row.price_asset_id)?;
 
+        // Decimals for the base volume is amount decimals.
+        // Decimals for the quote volume is sum amount + price decimals,
+        // because it was multiplied as `amount * price`.
         let delta_base_vol = apply_decimals(&row.delta_base_vol, amount_dec);
-        let delta_quote_vol = apply_decimals(&row.delta_quote_vol, price_dec);
+        let delta_quote_vol = apply_decimals(&row.delta_quote_vol, amount_dec + price_dec);
 
-        let entry = daily.entry(row.agg_date).or_insert_with(|| Item {
-            interval: NaiveDateInterval::new(row.agg_date),
-            volumes: vec![],
-        });
-        entry.volumes.push((&row.amount_asset_id, delta_base_vol));
-        entry.volumes.push((&row.price_asset_id, delta_quote_vol));
+        let d = row.agg_date.and_hms_opt(0, 0, 0).expect("time 0:00:00");
+        let i = volumes
+            .binary_search_by(|it| {
+                if d >= it.interval.interval_start && d < it.interval.interval_end {
+                    Ordering::Equal
+                } else if it.interval.interval_end <= d {
+                    Ordering::Less
+                } else if it.interval.interval_start > d {
+                    Ordering::Greater
+                } else {
+                    unreachable!()
+                }
+            })
+            .expect("internal error - interval not found");
+        let vols = &mut volumes[i].volumes;
+
+        vols.push((&row.amount_asset_id, delta_base_vol));
+        vols.push((&row.price_asset_id, delta_quote_vol));
     }
 
-    let mut items = vec![];
+    let mut items = Vec::with_capacity(volumes.len());
 
-    for date in daily.keys().sorted() {
-        let entry = &daily[date];
+    for it in volumes {
+        let interval = it.interval;
+        let vols = it.volumes;
 
-        let rate_assets = entry.volumes.iter().map(|&(asset, _)| (asset, out_asset));
+        let rate_assets = vols.iter().map(|&(asset, _)| (asset, out_asset));
+
+        let rate_timestamp = interval.interval_end.and_utc();
 
         let assets_rates = rates_client
-            .rates(rate_assets, Some(entry.interval.interval_end.and_utc()))
+            .rates(rate_assets, Some(rate_timestamp))
             .await
             .map_err(Error::UpstreamAPIRequestError)?
             .data
             .into_iter()
             .map(|rate| rate.data.rate);
 
-        let volumes_with_rates = entry
-            .volumes
-            .iter()
+        let volumes_with_rates = vols
+            .into_iter()
             .zip(assets_rates)
-            .map(|(&(_, ref volume), rate)| (volume.clone(), rate));
+            .map(|((_, volume), rate)| (volume, rate))
+            .filter(|(volume, rate)| *rate > BigDecimal::zero() && !volume.is_zero());
 
         let sum_pnl = volumes_with_rates.fold(BigDecimal::zero(), |acc, (volume, rate)| {
-            if rate > BigDecimal::zero() {
-                acc + volume / rate
-            } else {
-                acc
-            }
+            acc + volume * rate
         });
 
-        //TODO support intervals other than 1d - pass r.interval as parameter and use properly
-        let mut item = PnlAggregatesItem::empty(*date);
-
-        item.pnl = sum_pnl.with_scale(get_decimals(out_asset)?);
-
+        let item = PnlAggregatesItem {
+            interval,
+            pnl: sum_pnl.with_scale(get_decimals(out_asset)?),
+        };
         items.push(item);
     }
 
@@ -658,4 +687,19 @@ fn date_interval(min_date: NaiveDate, max_date: NaiveDate) -> Vec<NaiveDate> {
         };
     }
     out
+}
+
+fn generate_intervals(
+    interval: Interval,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+) -> Vec<NaiveDateInterval> {
+    let mut res = Vec::new();
+    let mut cur_date = start_date;
+    while cur_date < end_date {
+        let i = NaiveDateInterval::new(interval, cur_date);
+        cur_date = i.interval_end.date() + Duration::days(1);
+        res.push(i);
+    }
+    res
 }
