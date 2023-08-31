@@ -529,6 +529,7 @@ async fn pnl_aggregates(
     req: PnlAggregatesRequest,
 ) -> Result<List<PnlAggregatesItem>, Rejection> {
     let req = PnlAggregatesRequest::default_merge(req)?;
+    log::debug!("pnl_aggregates(): {:?}", req);
 
     let interval = req.interval.unwrap_or(Interval::Day1);
     let start_date = req
@@ -648,12 +649,21 @@ async fn pnl_aggregates(
         let volumes_with_rates = vols
             .into_iter()
             .zip(assets_rates)
-            .map(|((_, volume), rate)| (volume, rate))
-            .filter(|(volume, rate)| *rate > BigDecimal::zero() && !volume.is_zero());
+            .map(|((asset_id, volume), rate)| (asset_id, volume, rate));
 
-        let sum_pnl = volumes_with_rates.fold(BigDecimal::zero(), |acc, (volume, rate)| {
-            acc + volume * rate
-        });
+        let sum_pnl =
+            volumes_with_rates.fold(BigDecimal::zero(), |acc, (asset_id, volume, rate)| {
+                log::debug!(
+                    "[{} .. {}] {} ${} = {} * {}",
+                    interval.interval_start,
+                    interval.interval_end,
+                    asset_id,
+                    &volume * &rate,
+                    volume,
+                    rate
+                );
+                acc + volume * rate
+            });
 
         let item = PnlAggregatesItem {
             interval,
@@ -661,6 +671,8 @@ async fn pnl_aggregates(
         };
         items.push(item);
     }
+
+    log::debug!("completed pnl_aggregates(): {:?}", items);
 
     let res = List {
         items,
