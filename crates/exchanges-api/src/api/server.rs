@@ -598,7 +598,8 @@ async fn pnl_aggregates(
 
     for row in &db_items {
         let amount_dec = get_decimals(&row.amount_asset_id)?;
-        let price_dec = get_decimals(&row.price_asset_id)?;
+        //let price_dec = get_decimals(&row.price_asset_id)?;
+        let price_dec = 8; // Order v3 - fixed 8 decimals for price
 
         // Decimals for the base volume is amount decimals.
         // Decimals for the quote volume is sum amount + price decimals,
