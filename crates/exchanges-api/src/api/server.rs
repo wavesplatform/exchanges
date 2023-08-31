@@ -709,7 +709,7 @@ fn generate_intervals(
 ) -> Vec<NaiveDateInterval> {
     let mut res = Vec::new();
     let mut cur_date = start_date;
-    while cur_date < end_date {
+    while cur_date <= end_date {
         let i = NaiveDateInterval::new(interval, cur_date);
         cur_date = i.interval_end.date() + Duration::days(1);
         res.push(i);
