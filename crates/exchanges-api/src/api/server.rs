@@ -585,8 +585,8 @@ async fn pnl_aggregates(
 
     struct Item<'a> {
         interval: NaiveDateInterval,
-        /// Asset ID -> Volume (with applied decimals)
-        volumes: Vec<(&'a str, BigDecimal)>,
+        /// Asset ID -> Volume (with applied decimals) for each pair
+        volumes: Vec<[(&'a str, BigDecimal); 2]>,
     }
 
     let mut volumes = intervals
@@ -624,8 +624,12 @@ async fn pnl_aggregates(
             .expect("internal error - interval not found");
         let vols = &mut volumes[i].volumes;
 
-        vols.push((&row.amount_asset_id, delta_base_vol));
-        vols.push((&row.price_asset_id, delta_quote_vol));
+        let pair_vols = [
+            (row.amount_asset_id.as_str(), delta_base_vol),
+            (row.price_asset_id.as_str(), delta_quote_vol),
+        ];
+
+        vols.push(pair_vols);
     }
 
     let mut items = Vec::with_capacity(volumes.len());
@@ -634,22 +638,43 @@ async fn pnl_aggregates(
         let interval = it.interval;
         let vols = it.volumes;
 
-        let rate_assets = vols.iter().map(|&(asset, _)| (asset, out_asset));
+        // Unique assets from all pairs collected as tuples `(asset, output_asset)`
+        let rate_assets = vols
+            .iter()
+            .flatten()
+            .map(|&(asset, _)| (asset, out_asset))
+            .unique()
+            .collect_vec();
 
         let rate_timestamp = interval.interval_end.and_utc();
 
+        let zero = BigDecimal::zero();
+
+        // Hash map: AssetID -> rate, missing (zero) rates removed
         let assets_rates = rates_client
-            .rates(rate_assets, Some(rate_timestamp))
+            .rates(rate_assets.iter().cloned(), Some(rate_timestamp))
             .await
             .map_err(Error::UpstreamAPIRequestError)?
             .data
             .into_iter()
-            .map(|rate| rate.data.rate);
+            .map(|rate| rate.data.rate)
+            .zip(rate_assets.into_iter())
+            .filter(|&(ref rate, _)| rate > &zero)
+            .map(|(rate, (asset, _))| (asset, rate))
+            .collect::<HashMap<_, _>>();
 
         let volumes_with_rates = vols
             .into_iter()
-            .zip(assets_rates)
-            .map(|((asset_id, volume), rate)| (asset_id, volume, rate));
+            .filter(|&[(asset1, _), (asset2, _)]| {
+                // Remove pair completely if at least one asset in that pair has no rate
+                assets_rates.contains_key(asset1) && assets_rates.contains_key(asset2)
+            })
+            .flatten()
+            .map(|(asset_id, volume)| {
+                // Unwrap is safe here because of the filter above
+                let rate = assets_rates.get(asset_id).cloned().unwrap();
+                (asset_id, volume, rate)
+            });
 
         let sum_pnl =
             volumes_with_rates.fold(BigDecimal::zero(), |acc, (asset_id, volume, rate)| {
@@ -662,6 +687,7 @@ async fn pnl_aggregates(
                     volume,
                     rate
                 );
+                assert_ne!(rate, zero);
                 acc + volume * rate
             });
 
