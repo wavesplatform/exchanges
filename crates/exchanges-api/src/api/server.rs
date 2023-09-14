@@ -483,8 +483,9 @@ async fn matcher_exchange_aggregates(
     let mut items = vec![];
 
     for r in db_items {
-        let price_dec = get_decimals(&r.price_asset_id)?;
+        //let price_dec = get_decimals(&r.price_asset_id)?;
         let amount_dec = get_decimals(&r.amount_asset_id)?;
+        let price_dec = 8; // Order v3 - fixed 8 decimals for price
 
         let mut item =
             MatcherExchangeAggregatesItem::empty(r.amount_asset_id, r.price_asset_id, r.agg_date);
