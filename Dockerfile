@@ -1,4 +1,4 @@
-FROM rust:1.67 AS builder
+FROM rust:1.72 AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl openssl libssl-dev libpq-dev protobuf-compiler
@@ -12,7 +12,7 @@ RUN cargo install --path ./crates/database
 RUN cargo install --path ./crates/exchanges-api
 RUN cargo install --path ./crates/exchanges-consumer
 
-FROM debian:11 as runtime
+FROM debian:12 as runtime
 WORKDIR /app
 
 RUN apt-get update \

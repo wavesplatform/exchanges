@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*"]
+resolver = "2"
 
 [workspace.package]
 version = "1.0.0"
@@ -13,9 +14,9 @@ bigdecimal = { version = "0.1", features = ["serde"] } # Upgrade to 0.3 and remo
 num-bigint = { version = "0.2", features = ["i128"] }
 num-integer = { version = "0.1", features = ["i128"] }
 blake2 = "0.10"
-bs58 = "0.4"
+bs58 = "0.5"
 bytes = "1.0.1"
-cached = "0.42.0"
+cached = "0.44"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "1.4.8", default-features = false, features = ["postgres", "chrono", "r2d2", "numeric"] }
 diesel-derive-enum = { version = "1.1.2", features = ["postgres"] }
@@ -23,7 +24,7 @@ diesel_migrations = "1.4"
 envy = "0.4"
 fragstrings = { git = "https://github.com/waves-exchange/fragstrings", tag = "v0.2.0" }
 futures = "0.3"
-itertools = "0.10.3"
+itertools = "0.11"
 lazy_static = "1.4"
 percent-encoding = "2.1"
 r2d2 = "0.8"
@@ -43,7 +44,6 @@ wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
 
 # Local crates
-contracts = { path = "./crates/contracts", version = "0.0.0" }
 database = { path = "./crates/database", version = "0.0.0" }
 shared = { path = "./crates/shared", version = "0.0.0" }
 

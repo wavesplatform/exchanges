@@ -274,7 +274,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                     ..
                 })) => {
                     let time_stamp = {
-                        DateTime::<Utc>::from_utc(
+                        DateTime::<Utc>::from_naive_utc_and_offset(
                             NaiveDateTime::from_timestamp_opt(
                                 *timestamp / 1000,
                                 *timestamp as u32 % 1000 * 1000,
