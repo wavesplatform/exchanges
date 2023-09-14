@@ -1,0 +1,9 @@
+# For documentation on how to configure this file,
+# see diesel.rs/guides/configuring-diesel-cli
+
+[print_schema]
+file = "crates/database/src/lib/schema.rs"
+with_docs = false
+
+[migrations_directory]
+dir = "crates/database/migrations"
