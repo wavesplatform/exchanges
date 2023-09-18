@@ -21,7 +21,7 @@ use warp::{Filter, Rejection};
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
     rates::dto::{Rate, RateData},
-    AssetsService, HttpClient as ApiHttpClient, RatesService,
+    AssetsService, HttpClient as ApiHttpClient, RateAggregates, RatesService,
 };
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::{
@@ -52,6 +52,10 @@ pub async fn start(
         .with_base_url(rates_api_url.trim_end_matches(f_trim))
         .build();
 
+    let rate_aggregates_api_client = ApiHttpClient::<RateAggregates>::builder()
+        .with_base_url(rates_api_url.trim_end_matches(f_trim))
+        .build();
+
     let assets_api_client = ApiHttpClient::<AssetsService>::builder()
         .with_base_url(assets_api_url.trim_end_matches(f_trim))
         .build();
@@ -61,6 +65,9 @@ pub async fn start(
 
     let arc_rates = Arc::new(rates_api_client);
     let with_rates = with_warp(arc_rates.clone());
+
+    let arc_rate_aggregates = Arc::new(rate_aggregates_api_client);
+    let with_rate_aggregates = with_warp(arc_rate_aggregates.clone());
 
     let arc_assets = Arc::new(assets_api_client);
     let with_assets = with_warp(arc_assets.clone());
@@ -121,7 +128,7 @@ pub async fn start(
     let pnl_aggregates_handler = warp::path!("pnl_aggregates")
         .and(warp::get())
         .and(with_repo.clone())
-        .and(with_rates.clone())
+        .and(with_rate_aggregates.clone())
         .and(with_assets.clone())
         .and(serde_qs::warp::query::<PnlAggregatesRequest>(
             create_serde_qs_config(),
@@ -524,12 +531,12 @@ async fn matcher_exchange_aggregates(
 
 async fn pnl_aggregates(
     repo: Arc<repo::PgRepo>,
-    rates_client: Arc<ApiHttpClient<RatesService>>,
+    rates_client: Arc<ApiHttpClient<RateAggregates>>,
     assets_client: Arc<ApiHttpClient<AssetsService>>,
     req: PnlAggregatesRequest,
 ) -> Result<List<PnlAggregatesItem>, Rejection> {
     let req = PnlAggregatesRequest::default_merge(req)?;
-    log::debug!("pnl_aggregates(): {:?}", req);
+    log::trace!("pnl_aggregates(): {:?}", req);
 
     let interval = req.interval.unwrap_or(Interval::Day1);
     let start_date = req
@@ -548,6 +555,7 @@ async fn pnl_aggregates(
     // Aggregates with fixed interval 1day
     let db_items = repo.pnl_aggregates(&req)?;
 
+    // Unique assets from all pairs
     let assets = db_items
         .iter()
         .map(|it| [it.amount_asset_id.as_str(), it.price_asset_id.as_str()])
@@ -583,10 +591,40 @@ async fn pnl_aggregates(
         }
     };
 
-    struct Item<'a> {
+    // Unique assets from all pairs collected as tuples `(asset, output_asset)`
+    let rate_assets = assets.iter().map(|&asset| (asset, out_asset)).collect_vec();
+
+    let zero = BigDecimal::zero();
+
+    // Map (asset, date) -> rate, all rates are non-zero, missing rates removed
+    let assets_rates = rates_client
+        .mget(rate_assets.iter().cloned(), start_date, end_date)
+        .await
+        .map_err(Error::UpstreamAPIRequestError)?
+        .items
+        .into_iter()
+        .map(|rate| {
+            let dt1 = rate.interval_start.date();
+            let dt2 = rate.interval_end.date();
+            assert_eq!(dt1, dt2, "unexpected interval: not 1d");
+            let date = dt1;
+            rate.aggregates.into_iter().map(move |agg| {
+                let asset = agg.pair.splitn(2, '/').next().expect("pair").to_owned();
+                let rate = agg.rates.close.map(BigDecimal::from).unwrap_or_default();
+                (asset, date, rate)
+            })
+        })
+        .flatten()
+        .filter(|&(_, _, ref rate)| rate > &zero)
+        .map(|(asset, date, rate)| ((asset, date), rate))
+        .collect::<HashMap<_, _>>();
+
+    drop(assets);
+
+    struct Item {
         interval: NaiveDateInterval,
         /// Asset ID -> Volume (with applied decimals) for each pair
-        volumes: Vec<[(&'a str, BigDecimal); 2]>,
+        volumes: Vec<[(String, BigDecimal); 2]>,
     }
 
     let mut volumes = intervals
@@ -597,7 +635,7 @@ async fn pnl_aggregates(
         })
         .collect_vec();
 
-    for row in &db_items {
+    for row in db_items {
         let amount_dec = get_decimals(&row.amount_asset_id)?;
         //let price_dec = get_decimals(&row.price_asset_id)?;
         let price_dec = 8; // Order v3 - fixed 8 decimals for price
@@ -625,8 +663,8 @@ async fn pnl_aggregates(
         let vols = &mut volumes[i].volumes;
 
         let pair_vols = [
-            (row.amount_asset_id.as_str(), delta_base_vol),
-            (row.price_asset_id.as_str(), delta_quote_vol),
+            (row.amount_asset_id, delta_base_vol),
+            (row.price_asset_id, delta_quote_vol),
         ];
 
         vols.push(pair_vols);
@@ -638,43 +676,23 @@ async fn pnl_aggregates(
         let interval = it.interval;
         let vols = it.volumes;
 
-        // Unique assets from all pairs collected as tuples `(asset, output_asset)`
-        let rate_assets = vols
-            .iter()
-            .flatten()
-            .map(|&(asset, _)| (asset, out_asset))
-            .unique()
-            .collect_vec();
-
-        let rate_timestamp = interval.interval_end.and_utc();
-
-        let zero = BigDecimal::zero();
-
-        // Hash map: AssetID -> rate, missing (zero) rates removed
-        let assets_rates = rates_client
-            .rates(rate_assets.iter().cloned(), Some(rate_timestamp))
-            .await
-            .map_err(Error::UpstreamAPIRequestError)?
-            .data
-            .into_iter()
-            .map(|rate| rate.data.rate)
-            .zip(rate_assets.into_iter())
-            .filter(|&(ref rate, _)| rate > &zero)
-            .map(|(rate, (asset, _))| (asset, rate))
-            .collect::<HashMap<_, _>>();
+        let date = interval.interval_end.date();
 
         let volumes_with_rates = vols
             .into_iter()
-            .filter(|&[(asset1, _), (asset2, _)]| {
+            .filter(|&[(ref asset1, _), (ref asset2, _)]| {
                 // Remove pair completely if at least one asset in that pair has no rate
-                assets_rates.contains_key(asset1) && assets_rates.contains_key(asset2)
+                assets_rates.contains_key(&(asset1.clone(), date))
+                    && assets_rates.contains_key(&(asset2.clone(), date))
             })
             .flatten()
-            .map(|(asset_id, volume)| {
+            .map(|(asset, volume)| {
                 // Unwrap is safe here because of the filter above
-                let rate = assets_rates.get(asset_id).cloned().unwrap();
-                (asset_id, volume, rate)
+                let rate = assets_rates.get(&(asset.clone(), date)).cloned().unwrap();
+                (asset, volume, rate)
             });
+
+        let zero = BigDecimal::zero();
 
         let sum_pnl =
             volumes_with_rates.fold(BigDecimal::zero(), |acc, (asset_id, volume, rate)| {
@@ -698,7 +716,7 @@ async fn pnl_aggregates(
         items.push(item);
     }
 
-    log::debug!("completed pnl_aggregates(): {:?}", items);
+    log::trace!("completed pnl_aggregates(): {:?}", items);
 
     let res = List {
         items,
