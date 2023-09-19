@@ -610,7 +610,7 @@ async fn pnl_aggregates(
             let date = dt1;
             rate.aggregates.into_iter().map(move |agg| {
                 let asset = agg.pair.splitn(2, '/').next().expect("pair").to_owned();
-                let rate = agg.rates.close.map(BigDecimal::from).unwrap_or_default();
+                let rate = agg.rates.average.map(BigDecimal::from).unwrap_or_default();
                 (asset, date, rate)
             })
         })
