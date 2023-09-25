@@ -6,6 +6,7 @@ extern crate wavesexchange_log as log;
 mod api;
 mod config;
 mod error;
+mod timerange;
 
 use anyhow::Result;
 use database::db;

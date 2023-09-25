@@ -66,24 +66,14 @@ impl Repo for PgRepo {
             ))
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_grouped::sum_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_grouped::sum_date.le(date));
         }
 
         if req.order_sender_in.is_some() {
@@ -120,24 +110,14 @@ impl Repo for PgRepo {
             .order(exchange_transactions_grouped::sender)
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_grouped::sum_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_grouped::sum_date.le(date));
         }
 
         if req.order_sender_in.is_some() {
@@ -170,24 +150,14 @@ impl Repo for PgRepo {
             ))
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_daily_price_aggregates::agg_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_daily_price_aggregates::agg_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_daily_price_aggregates::agg_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_daily_price_aggregates::agg_date.le(date));
         }
 
         let rows = query
@@ -211,24 +181,14 @@ impl Repo for PgRepo {
         // Filter by sender
         q = q.filter(exchange_transactions_daily_by_sender_and_pair::sender.eq(&req.sender));
 
-        if req.block_timestamp_gte.is_some() {
-            q = q.filter(
-                exchange_transactions_daily_by_sender_and_pair::agg_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            q = q.filter(exchange_transactions_daily_by_sender_and_pair::agg_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            q = q.filter(
-                exchange_transactions_daily_by_sender_and_pair::agg_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            q = q.filter(exchange_transactions_daily_by_sender_and_pair::agg_date.le(date));
         }
 
         let rows = q

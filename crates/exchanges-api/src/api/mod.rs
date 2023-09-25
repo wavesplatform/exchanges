@@ -1,7 +1,10 @@
 pub mod repo;
 pub mod server;
 
-use crate::error::{self, Error};
+use crate::{
+    error::{self, Error},
+    timerange::UtcTimeRangeOpt,
+};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
@@ -226,6 +229,13 @@ impl IntervalExchangesRequest {
 
         Ok(def)
     }
+
+    fn time_range(&self) -> UtcTimeRangeOpt {
+        UtcTimeRangeOpt {
+            timestamp_gte: self.block_timestamp_gte,
+            timestamp_lt: self.block_timestamp_lt,
+        }
+    }
 }
 
 impl Default for IntervalExchangesRequest {
@@ -371,6 +381,13 @@ impl ExchangeAggregatesRequest {
 
         Ok(def)
     }
+
+    fn time_range(&self) -> UtcTimeRangeOpt {
+        UtcTimeRangeOpt {
+            timestamp_gte: self.block_timestamp_gte,
+            timestamp_lt: self.block_timestamp_lt,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -496,6 +513,13 @@ impl MatcherExchangeAggregatesRequest {
 
         Ok(def)
     }
+
+    fn time_range(&self) -> UtcTimeRangeOpt {
+        UtcTimeRangeOpt {
+            timestamp_gte: self.block_timestamp_gte,
+            timestamp_lt: self.block_timestamp_lt,
+        }
+    }
 }
 
 impl Default for MatcherExchangeAggregatesRequest {
@@ -574,6 +598,13 @@ impl PnlAggregatesRequest {
         }
 
         Ok(def)
+    }
+
+    fn time_range(&self) -> UtcTimeRangeOpt {
+        UtcTimeRangeOpt {
+            timestamp_gte: self.block_timestamp_gte,
+            timestamp_lt: self.block_timestamp_lt,
+        }
     }
 }
 
