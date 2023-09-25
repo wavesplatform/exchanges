@@ -107,6 +107,8 @@ pub(crate) struct MatcherExchangeDbRow {
     pub price_high: BigDecimal,
     #[sql_type = "Numeric"]
     pub price_low: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub price_avg: BigDecimal,
 }
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
@@ -454,6 +456,7 @@ pub(crate) struct MatcherExchangeAggregatesItem {
     price_close: BigDecimal,
     price_high: BigDecimal,
     price_low: BigDecimal,
+    price_avg: BigDecimal,
 }
 
 impl MatcherExchangeAggregatesItem {
@@ -467,6 +470,7 @@ impl MatcherExchangeAggregatesItem {
             price_close: BigDecimal::zero(),
             price_high: BigDecimal::zero(),
             price_low: BigDecimal::zero(),
+            price_avg: BigDecimal::zero(),
         }
     }
 }

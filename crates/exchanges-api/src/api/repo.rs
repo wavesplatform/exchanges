@@ -147,6 +147,7 @@ impl Repo for PgRepo {
                 exchange_transactions_daily_price_aggregates::price_close,
                 exchange_transactions_daily_price_aggregates::price_high,
                 exchange_transactions_daily_price_aggregates::price_low,
+                exchange_transactions_daily_price_aggregates::price_avg,
             ))
             .into_boxed();
 
@@ -161,6 +162,7 @@ impl Repo for PgRepo {
         }
 
         let rows = query
+            .order(exchange_transactions_daily_price_aggregates::agg_date.asc())
             .get_results::<MatcherExchangeDbRow>(&mut self.pg_pool.get()?)
             .map_err(|err| Error::DbError(err))?;
 

@@ -514,6 +514,7 @@ async fn matcher_exchange_aggregates(
         item.price_close = apply_decimals(r.price_close, price_dec);
         item.price_high = apply_decimals(r.price_high, price_dec);
         item.price_low = apply_decimals(r.price_low, price_dec);
+        item.price_avg = apply_decimals(r.price_avg, price_dec);
 
         items.push(item);
     }
