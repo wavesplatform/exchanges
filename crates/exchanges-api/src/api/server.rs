@@ -772,7 +772,10 @@ fn generate_intervals(
     let mut res = Vec::new();
     let mut cur_date = start_date;
     while cur_date <= end_date {
-        let i = NaiveDateInterval::new(interval, cur_date);
+        let mut i = NaiveDateInterval::new(interval, cur_date);
+        if i.interval_end.date() > end_date {
+            i.interval_end = end_date.and_time(i.interval_end.time());
+        }
         cur_date = i.interval_end.date() + Duration::days(1);
         res.push(i);
     }
