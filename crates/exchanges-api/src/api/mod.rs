@@ -326,8 +326,8 @@ impl ExchangeAggregatesRequest {
         ) {
             (Some(lt), Some(gte)) => {
                 let diff = lt.signed_duration_since(gte.clone()).num_days();
-                if diff > 33 || diff < 0 {
-                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 days");
+                if diff > 65 || diff < 0 {
+                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval between 1 and 64 days");
                 }
             }
             _ => unreachable!(),
