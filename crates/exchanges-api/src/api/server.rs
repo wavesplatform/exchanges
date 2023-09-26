@@ -466,27 +466,35 @@ async fn matcher_exchange_aggregates(
     req: MatcherExchangeAggregatesRequest,
 ) -> Result<List<MatcherExchangeAggregatesItem>, Rejection> {
     let req = MatcherExchangeAggregatesRequest::default_merge(req)?;
+    log::trace!("matcher_exchange_aggregates(): {:?}", req);
 
-    let db_items = repo.matcher_exchange_aggregates(&req)?;
+    let db_items = {
+        log::timer!("repo::matcher_exchange_aggregates", level = debug);
+        repo.matcher_exchange_aggregates(&req)?
+    };
 
-    let mut assets = HashSet::new();
+    let assets_decimals = {
+        log::timer!("assets info", level = debug);
 
-    db_items.iter().for_each(|r| {
-        assets.insert(r.amount_asset_id.as_str());
-        assets.insert(r.price_asset_id.as_str());
-    });
+        let mut assets = HashSet::new();
 
-    let assets_decimals = assets_client
-        .get(assets.into_iter(), None, OutputFormat::Full, false)
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|info| match info.data {
-            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-            _ => None,
-        })
-        .collect::<HashMap<_, _>>();
+        db_items.iter().for_each(|r| {
+            assets.insert(r.amount_asset_id.as_str());
+            assets.insert(r.price_asset_id.as_str());
+        });
+
+        assets_client
+            .get(assets.into_iter(), None, OutputFormat::Full, false)
+            .await
+            .map_err(|e| Error::UpstreamAPIRequestError(e))?
+            .data
+            .into_iter()
+            .filter_map(|info| match info.data {
+                Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>()
+    };
 
     let get_decimals = |asset_id: &str| -> Result<i64, Error> {
         match assets_decimals.get(asset_id) {
@@ -554,7 +562,10 @@ async fn pnl_aggregates(
     let out_asset = req.pnl_asset.as_ref().expect("output asset").as_str();
 
     // Aggregates with fixed interval 1day
-    let db_items = repo.pnl_aggregates(&req)?;
+    let db_items = {
+        log::timer!("repo::pnl_aggregates", level = debug);
+        repo.pnl_aggregates(&req)?
+    };
 
     // Unique assets from all pairs
     let assets = db_items
@@ -563,23 +574,26 @@ async fn pnl_aggregates(
         .flatten()
         .collect::<HashSet<_>>();
 
-    let assets_decimals = assets_client
-        .get(
-            assets.iter().map(|&a| a).chain(once(out_asset)),
-            None,
-            OutputFormat::Full,
-            false,
-        )
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|asset| match asset.data {
-            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-            _ => None,
-        })
-        .chain(once(("USD".to_string(), 2)))
-        .collect::<HashMap<_, _>>();
+    let assets_decimals = {
+        log::timer!("assets info", level = debug);
+        assets_client
+            .get(
+                assets.iter().map(|&a| a).chain(once(out_asset)),
+                None,
+                OutputFormat::Full,
+                false,
+            )
+            .await
+            .map_err(|e| Error::UpstreamAPIRequestError(e))?
+            .data
+            .into_iter()
+            .filter_map(|asset| match asset.data {
+                Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+                _ => None,
+            })
+            .chain(once(("USD".to_string(), 2)))
+            .collect::<HashMap<_, _>>()
+    };
 
     let get_decimals = |asset_id: &str| -> Result<i64, Error> {
         match assets_decimals.get(asset_id) {
@@ -598,27 +612,30 @@ async fn pnl_aggregates(
     let zero = BigDecimal::zero();
 
     // Map (asset, date) -> rate, all rates are non-zero, missing rates removed
-    let assets_rates = rates_client
-        .mget(rate_assets.iter().cloned(), start_date, end_date)
-        .await
-        .map_err(Error::UpstreamAPIRequestError)?
-        .items
-        .into_iter()
-        .map(|rate| {
-            let dt1 = rate.interval_start.date();
-            let dt2 = rate.interval_end.date();
-            assert_eq!(dt1, dt2, "unexpected interval: not 1d");
-            let date = dt1;
-            rate.aggregates.into_iter().map(move |agg| {
-                let asset = agg.pair.splitn(2, '/').next().expect("pair").to_owned();
-                let rate = agg.rates.average.map(BigDecimal::from).unwrap_or_default();
-                (asset, date, rate)
+    let assets_rates = {
+        log::timer!("assets_rates", level = debug);
+        rates_client
+            .mget(rate_assets.iter().cloned(), start_date, end_date)
+            .await
+            .map_err(Error::UpstreamAPIRequestError)?
+            .items
+            .into_iter()
+            .map(|rate| {
+                let dt1 = rate.interval_start.date();
+                let dt2 = rate.interval_end.date();
+                assert_eq!(dt1, dt2, "unexpected interval: not 1d");
+                let date = dt1;
+                rate.aggregates.into_iter().map(move |agg| {
+                    let asset = agg.pair.splitn(2, '/').next().expect("pair").to_owned();
+                    let rate = agg.rates.average.map(BigDecimal::from).unwrap_or_default();
+                    (asset, date, rate)
+                })
             })
-        })
-        .flatten()
-        .filter(|&(_, _, ref rate)| rate > &zero)
-        .map(|(asset, date, rate)| ((asset, date), rate))
-        .collect::<HashMap<_, _>>();
+            .flatten()
+            .filter(|&(_, _, ref rate)| rate > &zero)
+            .map(|(asset, date, rate)| ((asset, date), rate))
+            .collect::<HashMap<_, _>>()
+    };
 
     drop(assets);
 
