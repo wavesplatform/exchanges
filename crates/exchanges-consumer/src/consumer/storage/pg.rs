@@ -299,7 +299,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         // Update `exchange_transactions_daily_price_aggregates`
 
         let sql = r#"
-            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, total_amount, price_open, price_close, price_high, price_low, price_avg)
+            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, price_open, price_close, total_amount, price_high, price_low, price_avg)
             SELECT
                 tx_date,
                 amount_asset_id,
