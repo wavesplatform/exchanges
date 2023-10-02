@@ -47,6 +47,7 @@ table! {
         price_close -> Numeric,
         price_high -> Numeric,
         price_low -> Numeric,
+        price_avg -> Numeric,
     }
 }
 

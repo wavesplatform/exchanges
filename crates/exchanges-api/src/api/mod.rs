@@ -107,6 +107,8 @@ pub(crate) struct MatcherExchangeDbRow {
     pub price_high: BigDecimal,
     #[sql_type = "Numeric"]
     pub price_low: BigDecimal,
+    #[sql_type = "Numeric"]
+    pub price_avg: BigDecimal,
 }
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
@@ -324,8 +326,8 @@ impl ExchangeAggregatesRequest {
         ) {
             (Some(lt), Some(gte)) => {
                 let diff = lt.signed_duration_since(gte.clone()).num_days();
-                if diff > 33 || diff < 0 {
-                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval beetwen 1 and 32 days");
+                if diff > 65 || diff < 0 {
+                    return validate_error("invalid interval in params (block_timestamp__lt - block_timestamp__gte) must be in interval between 1 and 64 days");
                 }
             }
             _ => unreachable!(),
@@ -454,6 +456,7 @@ pub(crate) struct MatcherExchangeAggregatesItem {
     price_close: BigDecimal,
     price_high: BigDecimal,
     price_low: BigDecimal,
+    price_avg: BigDecimal,
 }
 
 impl MatcherExchangeAggregatesItem {
@@ -467,6 +470,7 @@ impl MatcherExchangeAggregatesItem {
             price_close: BigDecimal::zero(),
             price_high: BigDecimal::zero(),
             price_low: BigDecimal::zero(),
+            price_avg: BigDecimal::zero(),
         }
     }
 }

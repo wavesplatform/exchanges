@@ -299,14 +299,29 @@ impl ConsumerRepoOperations for PooledPgConnection {
         // Update `exchange_transactions_daily_price_aggregates`
 
         let sql = r#"
-            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, total_amount, price_open, price_close, price_high, price_low)
-            select tx.tx_date, tx.amount_asset_id, tx.price_asset_id, sum(tx.amount) total_amount, first(tx.price) price_open, last(tx.price) price_close, max(tx.price) price_high, min(tx.price) price_low
-            from exchange_transactions tx
-                     inner join blocks_microblocks b on tx.block_uid = b.uid
-            where
-                  tx.tx_date >= ($1::Date - '1 DAY'::Interval)
-              and b.time_stamp is not null
-            group by 1,2,3
+            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, price_open, price_close, total_amount, price_high, price_low, price_avg)
+            SELECT
+                tx_date,
+                amount_asset_id,
+                price_asset_id,
+                price_open,
+                price_close,
+                sum(amount) / 2.0 total_amount, -- Divided by 2 because each TX has 2 rows: byu side and sell side
+                max(price) price_high,
+                min(price) price_low,
+                sum(amount::numeric * price::numeric) / sum(amount::numeric) price_avg
+            FROM (
+                    select
+                        tx.tx_date, tx.amount_asset_id, tx.price_asset_id, tx.amount, tx.price,
+                        first_value(tx.price) OVER (PARTITION BY tx.tx_date, tx.amount_asset_id, tx.price_asset_id ORDER BY tx.uid ASC) price_open,
+                        first_value(tx.price) OVER (PARTITION BY tx.tx_date, tx.amount_asset_id, tx.price_asset_id ORDER BY tx.uid DESC) price_close
+                    from exchange_transactions tx
+                             inner join blocks_microblocks b on tx.block_uid = b.uid
+                    where
+                        tx.tx_date >= ($1::Date - '1 DAY'::Interval)
+                        and b.time_stamp is not null
+                 ) x
+            group by 1,2,3,4,5
 
             on conflict on constraint exchange_transactions_daily_price_aggregates_pkey
                 do update set
@@ -314,7 +329,8 @@ impl ConsumerRepoOperations for PooledPgConnection {
                               price_open = excluded.price_open,
                               price_close = excluded.price_close,
                               price_high = excluded.price_high,
-                              price_low = excluded.price_low
+                              price_low = excluded.price_low,
+                              price_avg = excluded.price_avg
         "#;
         let q = sql_query(sql).bind::<Date, _>(&last_date);
 
