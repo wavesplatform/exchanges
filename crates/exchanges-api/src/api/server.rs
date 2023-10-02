@@ -6,6 +6,7 @@ use super::{
     IntervalExchangesRequest, MatcherExchangeAggregatesItem, MatcherExchangeAggregatesRequest,
     NaiveDateInterval, PnlAggregatesItem, PnlAggregatesRequest,
 };
+use crate::gateways::assets::AssetServiceGateway;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Days, Duration, NaiveDate, Utc};
 use itertools::Itertools;
@@ -19,7 +20,6 @@ use std::{
 };
 use warp::{Filter, Rejection};
 use wavesexchange_apis::{
-    assets::dto::{AssetInfo, OutputFormat},
     rates::dto::{Rate, RateData},
     AssetsService, HttpClient as ApiHttpClient, RateAggregates, RatesService,
 };
@@ -69,8 +69,8 @@ pub async fn start(
     let arc_rate_aggregates = Arc::new(rate_aggregates_api_client);
     let with_rate_aggregates = with_warp(arc_rate_aggregates.clone());
 
-    let arc_assets = Arc::new(assets_api_client);
-    let with_assets = with_warp(arc_assets.clone());
+    let asset_service_gateway = AssetServiceGateway::new(assets_api_client);
+    let with_assets = with_warp(asset_service_gateway.clone());
 
     let error_handler = handler(ERROR_CODES_PREFIX, |err| match err {
         error::Error::ValidationError(_error_message, error_details) => {
@@ -162,7 +162,7 @@ pub async fn start(
 async fn interval_exchanges(
     repo: Arc<repo::PgRepo>,
     rates_client: Arc<ApiHttpClient<RatesService>>,
-    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    assets_gateway: AssetServiceGateway,
     req: IntervalExchangesRequest,
 ) -> Result<List<IntervalExchangeItem>, Rejection> {
     let req = IntervalExchangesRequest::default_merge(req)?;
@@ -172,38 +172,50 @@ async fn interval_exchanges(
     let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
     let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
 
-    let mut asset_pairs: Vec<(&str, &str)> = vec![];
-    let mut assets: Vec<&str> = Vec::new();
+    let assets_decimals = {
+        let assets = {
+            db_items
+                .iter()
+                .map(|r| [r.amount_asset_id.as_str(), r.fee_asset_id.as_str()])
+                .flatten()
+                .unique()
+                .collect_vec()
+        };
 
-    db_items.iter().for_each(|r| {
-        asset_pairs.push((r.amount_asset_id.as_str(), volume_base_asset));
+        assets_gateway
+            .decimals_map(assets)
+            .await
+            .map_err(Error::from)?
+    };
 
-        asset_pairs.push((r.fee_asset_id.as_str(), fees_base_asset));
+    let get_decimals = move |asset_id: &str| -> Result<i64, Error> {
+        assets_decimals.get(asset_id).map_err(Error::from)
+    };
 
-        assets.push(r.amount_asset_id.as_str());
-        assets.push(r.fee_asset_id.as_str());
-    });
+    let rates_map = {
+        let asset_pairs = {
+            db_items
+                .iter()
+                .map(|r| {
+                    [
+                        (r.amount_asset_id.as_str(), volume_base_asset.as_str()),
+                        (r.fee_asset_id.as_str(), fees_base_asset.as_str()),
+                    ]
+                })
+                .flatten()
+                .unique()
+                .collect_vec()
+        };
 
-    let assets_decimals = assets_client
-        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|info| match info.data {
-            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-            _ => None,
-        })
-        .collect::<HashMap<_, _>>();
-
-    let rates_map = rates_client
-        .rates(asset_pairs.into_iter().unique(), req.block_timestamp_lt)
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|rate| Some((rate.pair.clone(), rate)))
-        .collect::<HashMap<_, _>>();
+        rates_client
+            .rates(asset_pairs, req.block_timestamp_lt)
+            .await
+            .map_err(|e| Error::UpstreamAPIRequestError(e))?
+            .data
+            .into_iter()
+            .filter_map(|rate| Some((rate.pair.clone(), rate)))
+            .collect::<HashMap<_, _>>()
+    };
 
     let mut histogram = HashMap::new();
 
@@ -248,27 +260,8 @@ async fn interval_exchanges(
             None => max_date = Some(r.sum_date),
         }
 
-        let amount_dec = match assets_decimals.get(&r.amount_asset_id) {
-            Some(d) => *d as i64,
-            _ => {
-                return Err(Error::UpstreamAPIBadResponse(format!(
-                    "can't get decimals {} from asset service",
-                    &r.amount_asset_id
-                ))
-                .into());
-            }
-        };
-
-        let fee_dec = match assets_decimals.get(&r.fee_asset_id) {
-            Some(d) => *d as i64,
-            _ => {
-                return Err(Error::UpstreamAPIBadResponse(format!(
-                    "can't get decimals {} from asset service",
-                    &r.fee_asset_id
-                ))
-                .into());
-            }
-        };
+        let amount_dec = get_decimals(&r.amount_asset_id)?;
+        let fee_dec = get_decimals(&r.fee_asset_id)?;
 
         let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
         let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
@@ -343,7 +336,7 @@ async fn interval_exchanges(
 async fn exchange_aggregates(
     repo: Arc<repo::PgRepo>,
     rates_client: Arc<ApiHttpClient<RatesService>>,
-    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    assets_gateway: AssetServiceGateway,
     req: ExchangeAggregatesRequest,
 ) -> Result<List<ExchangeAggregatesItem>, Rejection> {
     let req = ExchangeAggregatesRequest::default_merge(req)?;
@@ -353,38 +346,50 @@ async fn exchange_aggregates(
     let volume_base_asset = req.volume_base_asset.as_ref().unwrap();
     let fees_base_asset = req.fees_base_asset.as_ref().unwrap();
 
-    let mut asset_pairs: Vec<(&str, &str)> = vec![];
-    let mut assets: Vec<&str> = Vec::new();
+    let assets_decimals = {
+        let assets = {
+            db_items
+                .iter()
+                .map(|r| [r.amount_asset_id.as_str(), r.fee_asset_id.as_str()])
+                .flatten()
+                .unique()
+                .collect_vec()
+        };
 
-    db_items.iter().for_each(|r| {
-        asset_pairs.push((r.amount_asset_id.as_str(), volume_base_asset));
+        assets_gateway
+            .decimals_map(assets)
+            .await
+            .map_err(Error::from)?
+    };
 
-        asset_pairs.push((r.fee_asset_id.as_str(), fees_base_asset));
+    let get_decimals = move |asset_id: &str| -> Result<i64, Error> {
+        assets_decimals.get(asset_id).map_err(Error::from)
+    };
 
-        assets.push(r.amount_asset_id.as_str());
-        assets.push(r.fee_asset_id.as_str());
-    });
+    let rates_map = {
+        let asset_pairs = {
+            db_items
+                .iter()
+                .map(|r| {
+                    [
+                        (r.amount_asset_id.as_str(), volume_base_asset.as_str()),
+                        (r.fee_asset_id.as_str(), fees_base_asset.as_str()),
+                    ]
+                })
+                .flatten()
+                .unique()
+                .collect_vec()
+        };
 
-    let assets_decimals = assets_client
-        .get(assets.into_iter().unique(), None, OutputFormat::Full, false)
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|info| match info.data {
-            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-            _ => None,
-        })
-        .collect::<HashMap<_, _>>();
-
-    let rates_map = rates_client
-        .rates(asset_pairs.into_iter().unique(), req.block_timestamp_lt)
-        .await
-        .map_err(|e| Error::UpstreamAPIRequestError(e))?
-        .data
-        .into_iter()
-        .filter_map(|rate| Some((rate.pair.clone(), rate)))
-        .collect::<HashMap<_, _>>();
+        rates_client
+            .rates(asset_pairs, req.block_timestamp_lt)
+            .await
+            .map_err(|e| Error::UpstreamAPIRequestError(e))?
+            .data
+            .into_iter()
+            .filter_map(|rate| Some((rate.pair.clone(), rate)))
+            .collect::<HashMap<_, _>>()
+    };
 
     let mut histogram: HashMap<String, ExchangeAggregatesItem> = HashMap::new();
 
@@ -403,27 +408,8 @@ async fn exchange_aggregates(
             .entry(r.sender.clone())
             .or_insert(ExchangeAggregatesItem::empty(r.sender.clone()));
 
-        let amount_dec = match assets_decimals.get(&r.amount_asset_id) {
-            Some(d) => *d as i64,
-            _ => {
-                return Err(Error::UpstreamAPIBadResponse(format!(
-                    "can't get decimals {} from asset service",
-                    &r.amount_asset_id
-                ))
-                .into());
-            }
-        };
-
-        let fee_dec = match assets_decimals.get(&r.fee_asset_id) {
-            Some(d) => *d as i64,
-            _ => {
-                return Err(Error::UpstreamAPIBadResponse(format!(
-                    "can't get decimals {} from asset service",
-                    &r.fee_asset_id
-                ))
-                .into());
-            }
-        };
+        let amount_dec = get_decimals(&r.amount_asset_id)?;
+        let fee_dec = get_decimals(&r.fee_asset_id)?;
 
         let amount_rate_key = format!("{}/{}", r.amount_asset_id, volume_base_asset);
         let amount_rate = rates_map.get(&amount_rate_key).unwrap_or(&zero_rate);
@@ -462,7 +448,7 @@ async fn exchange_aggregates(
 
 async fn matcher_exchange_aggregates(
     repo: Arc<repo::PgRepo>,
-    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    assets_gateway: AssetServiceGateway,
     req: MatcherExchangeAggregatesRequest,
 ) -> Result<List<MatcherExchangeAggregatesItem>, Rejection> {
     let req = MatcherExchangeAggregatesRequest::default_merge(req)?;
@@ -476,35 +462,21 @@ async fn matcher_exchange_aggregates(
     let assets_decimals = {
         log::timer!("assets info", level = debug);
 
-        let mut assets = HashSet::new();
+        let assets = db_items
+            .iter()
+            .map(|r| [r.amount_asset_id.as_str(), r.price_asset_id.as_str()])
+            .flatten()
+            .unique()
+            .collect_vec();
 
-        db_items.iter().for_each(|r| {
-            assets.insert(r.amount_asset_id.as_str());
-            assets.insert(r.price_asset_id.as_str());
-        });
-
-        assets_client
-            .get(assets.into_iter(), None, OutputFormat::Full, false)
+        assets_gateway
+            .decimals_map(assets)
             .await
-            .map_err(|e| Error::UpstreamAPIRequestError(e))?
-            .data
-            .into_iter()
-            .filter_map(|info| match info.data {
-                Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>()
+            .map_err(Error::from)?
     };
 
-    let get_decimals = |asset_id: &str| -> Result<i64, Error> {
-        match assets_decimals.get(asset_id) {
-            Some(d) => Ok(*d as i64),
-            None => Err(Error::UpstreamAPIBadResponse(format!(
-                "can't get decimals {} from asset service",
-                asset_id
-            ))
-            .into()),
-        }
+    let get_decimals = move |asset_id: &str| -> Result<i64, Error> {
+        assets_decimals.get(asset_id).map_err(Error::from)
     };
 
     let mut items = vec![];
@@ -541,7 +513,7 @@ async fn matcher_exchange_aggregates(
 async fn pnl_aggregates(
     repo: Arc<repo::PgRepo>,
     rates_client: Arc<ApiHttpClient<RateAggregates>>,
-    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    assets_gateway: AssetServiceGateway,
     req: PnlAggregatesRequest,
 ) -> Result<List<PnlAggregatesItem>, Rejection> {
     let req = PnlAggregatesRequest::default_merge(req)?;
@@ -568,42 +540,32 @@ async fn pnl_aggregates(
     };
 
     // Unique assets from all pairs
-    let assets = db_items
-        .iter()
-        .map(|it| [it.amount_asset_id.as_str(), it.price_asset_id.as_str()])
-        .flatten()
-        .collect::<HashSet<_>>();
-
-    let assets_decimals = {
-        log::timer!("assets info", level = debug);
-        assets_client
-            .get(
-                assets.iter().map(|&a| a).chain(once(out_asset)),
-                None,
-                OutputFormat::Full,
-                false,
-            )
-            .await
-            .map_err(|e| Error::UpstreamAPIRequestError(e))?
-            .data
-            .into_iter()
-            .filter_map(|asset| match asset.data {
-                Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
-                _ => None,
-            })
-            .chain(once(("USD".to_string(), 2)))
-            .collect::<HashMap<_, _>>()
+    let assets = {
+        db_items
+            .iter()
+            .map(|it| [it.amount_asset_id.as_str(), it.price_asset_id.as_str()])
+            .flatten()
+            .collect::<HashSet<_>>()
     };
 
-    let get_decimals = |asset_id: &str| -> Result<i64, Error> {
-        match assets_decimals.get(asset_id) {
-            Some(d) => Ok(*d as i64),
-            None => Err(Error::UpstreamAPIBadResponse(format!(
-                "can't get decimals {} from asset service",
-                asset_id
-            ))
-            .into()),
-        }
+    // Query decimals for all unique assets from pairs + out asset
+    let assets_decimals = {
+        log::timer!("assets info (pnl_aggregates)", level = debug);
+
+        let assets = assets
+            .iter()
+            .cloned() // Does not clone strings, just remove one level of references
+            .chain(once(out_asset))
+            .collect_vec();
+
+        assets_gateway
+            .decimals_map(assets)
+            .await
+            .map_err(Error::from)?
+    };
+
+    let get_decimals = move |asset_id: &str| -> Result<i64, Error> {
+        assets_decimals.get(asset_id).map_err(Error::from)
     };
 
     // Unique assets from all pairs collected as tuples `(asset, output_asset)`
