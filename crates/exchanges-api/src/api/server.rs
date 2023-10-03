@@ -460,7 +460,7 @@ async fn matcher_exchange_aggregates(
     };
 
     let assets_decimals = {
-        log::timer!("assets info", level = debug);
+        log::timer!("assets info (matcher_exchange_aggregates)", level = debug);
 
         let assets = db_items
             .iter()
@@ -468,6 +468,7 @@ async fn matcher_exchange_aggregates(
             .flatten()
             .unique()
             .collect_vec();
+        log::trace!("querying {} assets (matcher_exchange_aggregates)", assets.len());
 
         assets_gateway
             .decimals_map(assets)
@@ -551,6 +552,7 @@ async fn pnl_aggregates(
     // Query decimals for all unique assets from pairs + out asset
     let assets_decimals = {
         log::timer!("assets info (pnl_aggregates)", level = debug);
+        log::trace!("querying {} assets (pnl_aggregates)", assets.len());
 
         let assets = assets
             .iter()
