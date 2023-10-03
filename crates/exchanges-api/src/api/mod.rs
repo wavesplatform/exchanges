@@ -6,7 +6,7 @@ use crate::{
     timerange::UtcTimeRangeOpt,
 };
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use chrono::{DateTime, Days, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use diesel::sql_types::{Date, Int8, Numeric, Text};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -569,22 +569,29 @@ impl PnlAggregatesRequest {
             def.interval = req.interval;
         }
 
-        if req.block_timestamp_gte.is_some() {
-            def.block_timestamp_gte = req.block_timestamp_gte;
-        }
-
-        def.block_timestamp_lt = match req.block_timestamp_lt {
-            Some(d) => Some(d),
-            None => Some(
+        def.block_timestamp_lt = req.block_timestamp_lt.or_else(|| {
+            Some(
                 Utc::now()
-                    .with_hour(0)
-                    .unwrap()
-                    .with_minute(0)
-                    .unwrap()
-                    .with_second(0)
-                    .unwrap(),
-            ),
-        };
+                    .date_naive()
+                    .and_hms_opt(0, 0, 0)
+                    .expect("time")
+                    .and_utc(),
+            )
+        });
+
+        def.block_timestamp_gte = req.block_timestamp_gte.or_else(|| {
+            def.block_timestamp_lt.map(|d| {
+                d.date_naive()
+                    .checked_sub_days(Days::new(6))
+                    .expect("date")
+                    .and_hms_opt(0, 0, 0)
+                    .expect("time")
+                    .and_utc()
+            })
+        });
+
+        debug_assert!(def.block_timestamp_gte.is_some());
+        debug_assert!(def.block_timestamp_lt.is_some());
 
         if req.pnl_asset.is_some() {
             def.pnl_asset = req.pnl_asset;
