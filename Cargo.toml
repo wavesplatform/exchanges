@@ -16,7 +16,7 @@ num-integer = { version = "0.1", features = ["i128"] }
 blake2 = "0.10"
 bs58 = "0.5"
 bytes = "1.0.1"
-cached = "0.44"
+cached = "0.46"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "1.4.8", default-features = false, features = ["postgres", "chrono", "r2d2", "numeric"] }
 diesel-derive-enum = { version = "1.1.2", features = ["postgres"] }
@@ -39,8 +39,8 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 warp = { version = "0.3", default-features = false }
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
-wavesexchange_loaders = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_loaders/0.2.1" }
-wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.29" }
+wavesexchange_loaders = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_loaders/0.2.2" }
+wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.31" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.6" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
 
@@ -49,7 +49,6 @@ database = { path = "./crates/database", version = "0.0.0" }
 shared = { path = "./crates/shared", version = "0.0.0" }
 
 [patch.crates-io]
-log = { git = "https://github.com/rust-lang/log", tag = "0.4.14" }
 # transitively sets up bigdecimal = "0.1.2" in wavesexchange_apis
 # remove after migrating on diesel 2
 bigdecimal = { git = "https://github.com/akubera/bigdecimal-rs/", tag = "v0.1.2" }
