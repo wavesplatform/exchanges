@@ -1,3 +1,6 @@
+//! App errors
+
+use crate::gateways::assets;
 use warp::reject::Reject;
 
 impl Reject for Error {}
@@ -12,8 +15,10 @@ pub enum Error {
     ValidationError(String, Option<std::collections::HashMap<String, String>>),
     #[error("UpstreamAPIRequestError: {0}")]
     UpstreamAPIRequestError(#[from] wavesexchange_apis::Error),
+    #[error("UpstreamAPILoaderError: {0}")]
+    UpstreamAPILoaderError(#[from] assets::AssetServiceGatewayError),
     #[error("UpstreamAPIBadResponse: {0}")]
-    UpstreamAPIBadResponse(String),
+    UpstreamAPIBadResponse(#[from] assets::AssetError),
     #[error("CursorSerializationError: {0}")]
     CursorSerializationError(#[from] serde_json::Error),
     #[error("CursorDecodeError: {0}")]

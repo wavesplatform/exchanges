@@ -7,9 +7,9 @@ use chrono::{NaiveDate, NaiveDateTime};
 use database::db::{PgPool, PooledPgConnection};
 use database::schema::{blocks_microblocks, exchange_transactions};
 use diesel::dsl::sql;
-use diesel::sql_types::{BigInt, Date, Nullable, Text, Timestamp};
+use diesel::sql_types::{BigInt, Date, Nullable, Timestamp};
 use diesel::{prelude::*, sql_query};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// Consumer's repo implementation that uses Postgres database as the storage.
 ///
@@ -257,7 +257,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         Ok(res[0])
     }
 
-    fn update_exchange_tx_aggregates(&self, matcher_address: Arc<String>) -> Result<()> {
+    fn update_aggregates(&self) -> Result<()> {
         let last_dates = exchange_transactions::table
             .select(exchange_transactions::tx_date)
             .order(exchange_transactions::tx_date.desc())
@@ -269,24 +269,26 @@ impl ConsumerRepoOperations for PooledPgConnection {
             return Ok(());
         }
 
+        let last_date = last_dates.first().expect("empty date");
+
         // Update `exchange_transactions_grouped`
 
-        let sql = "insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
-                            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
-                                from exchange_transactions tx
-                                    inner join blocks_microblocks b on tx.block_uid = b.uid
-                                where
-                                tx.tx_date >= ($1::Date - ' 1 DAY'::Interval)
-                                and b.time_stamp is not null
-                            group by 1,2,3,4
+        let sql = r#"
+            insert into exchange_transactions_grouped (sum_date, sender, amount_asset_id, fee_asset_id, amount_sum, fee_sum, tx_count)
+                select tx.tx_date, tx.sender, tx.amount_asset_id, tx.fee_asset_id, sum(tx.amount) amount_sum, sum(tx.fee) fee_sum, count(*) tx_count
+                    from exchange_transactions tx
+                        inner join blocks_microblocks b on tx.block_uid = b.uid
+                    where
+                    tx.tx_date >= ($1::Date - '1 DAY'::Interval)
+                    and b.time_stamp is not null
+                group by 1,2,3,4
 
-                            on conflict on constraint exchange_transactions_grouped_pkey
-                            do update set
-                                amount_sum = excluded.amount_sum,
-                                fee_sum = excluded.fee_sum,
-                                tx_count = excluded.tx_count";
-
-        let last_date = last_dates.first().expect("empty date");
+                on conflict on constraint exchange_transactions_grouped_pkey
+                do update set
+                    amount_sum = excluded.amount_sum,
+                    fee_sum = excluded.fee_sum,
+                    tx_count = excluded.tx_count
+        "#;
         let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
@@ -297,15 +299,29 @@ impl ConsumerRepoOperations for PooledPgConnection {
         // Update `exchange_transactions_daily_price_aggregates`
 
         let sql = r#"
-            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, total_amount, price_open, price_close, price_high, price_low)
-            select tx.tx_date, tx.amount_asset_id, tx.price_asset_id, sum(tx.amount) total_amount, first(tx.price) price_open, last(tx.price) price_close, max(tx.price) price_high, min(tx.price) price_low
-            from exchange_transactions tx
-                     inner join blocks_microblocks b on tx.block_uid = b.uid
-            where
-                  tx.tx_date >= ($1::Date - ' 1 DAY'::Interval)
-              and b.time_stamp is not null
-              and tx.sender = $2
-            group by 1,2,3
+            insert into exchange_transactions_daily_price_aggregates (agg_date, amount_asset_id, price_asset_id, price_open, price_close, total_amount, price_high, price_low, price_avg)
+            SELECT
+                tx_date,
+                amount_asset_id,
+                price_asset_id,
+                price_open,
+                price_close,
+                sum(amount) / 2.0 total_amount, -- Divided by 2 because each TX has 2 rows: byu side and sell side
+                max(price) price_high,
+                min(price) price_low,
+                sum(amount::numeric * price::numeric) / sum(amount::numeric) price_avg
+            FROM (
+                    select
+                        tx.tx_date, tx.amount_asset_id, tx.price_asset_id, tx.amount, tx.price,
+                        first_value(tx.price) OVER (PARTITION BY tx.tx_date, tx.amount_asset_id, tx.price_asset_id ORDER BY tx.uid ASC) price_open,
+                        first_value(tx.price) OVER (PARTITION BY tx.tx_date, tx.amount_asset_id, tx.price_asset_id ORDER BY tx.uid DESC) price_close
+                    from exchange_transactions tx
+                             inner join blocks_microblocks b on tx.block_uid = b.uid
+                    where
+                        tx.tx_date >= ($1::Date - '1 DAY'::Interval)
+                        and b.time_stamp is not null
+                 ) x
+            group by 1,2,3,4,5
 
             on conflict on constraint exchange_transactions_daily_price_aggregates_pkey
                 do update set
@@ -313,16 +329,39 @@ impl ConsumerRepoOperations for PooledPgConnection {
                               price_open = excluded.price_open,
                               price_close = excluded.price_close,
                               price_high = excluded.price_high,
-                              price_low = excluded.price_low
+                              price_low = excluded.price_low,
+                              price_avg = excluded.price_avg
         "#;
-
-        let last_date = last_dates.first().expect("empty date");
-        let q = sql_query(sql)
-            .bind::<Date, _>(&last_date)
-            .bind::<Text, _>(matcher_address.as_str());
+        let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
-            let context = format!("Cannot save exchange_transactions_grouped: {}", err);
+            let context = format!("Cannot save exchange_transactions_daily_price_aggregates: {}", err);
+            Error::new(AppError::DbError(err)).context(context)
+        })?;
+
+        // Update `exchange_transactions_daily_by_sender_and_pair`
+
+        let sql = r#"
+            insert into exchange_transactions_daily_by_sender_and_pair (agg_date, sender, amount_asset_id, price_asset_id, delta_base_vol, delta_quote_vol)
+            select tx.tx_date, tx.sender, tx.amount_asset_id, tx.price_asset_id,
+                   sum(tx.amount::NUMERIC * tx.buy_sell) delta_base_vol,
+                   sum(tx.price::NUMERIC * tx.amount::NUMERIC * (-tx.buy_sell)) delta_quote_vol
+            from exchange_transactions tx
+                     inner join blocks_microblocks b on tx.block_uid = b.uid
+            where
+                  tx.tx_date >= ($1::Date - '1 DAY'::Interval)
+              and b.time_stamp is not null
+            group by 1,2,3,4
+
+            on conflict on constraint exchange_transactions_daily_by_sender_and_pair_pkey
+                do update set
+                              delta_base_vol = excluded.delta_base_vol,
+                              delta_quote_vol = excluded.delta_quote_vol
+        "#;
+        let q = sql_query(sql).bind::<Date, _>(&last_date);
+
+        q.execute(self).map(|_| ()).map_err(|err| {
+            let context = format!("Cannot save exchange_transactions_daily_by_sender_and_pair: {}", err);
             Error::new(AppError::DbError(err)).context(context)
         })?;
 

@@ -1,12 +1,14 @@
 use super::{
-    ExchangeAggregateDbRow, ExchangeAggregatesRequest, IntervalExchangeDbRow,
+    error::Error, ExchangeAggregateDbRow, ExchangeAggregatesRequest, IntervalExchangeDbRow,
     IntervalExchangesRequest, MatcherExchangeAggregatesRequest, MatcherExchangeDbRow,
+    PnlAggregatesRequest, PnlDbRow,
 };
-use crate::api::Interval;
-use crate::error::Error;
-use database::db::PgPool;
-use database::schema::{
-    exchange_transactions_daily_price_aggregates, exchange_transactions_grouped,
+use database::{
+    db::PgPool,
+    schema::{
+        exchange_transactions_daily_by_sender_and_pair,
+        exchange_transactions_daily_price_aggregates, exchange_transactions_grouped,
+    },
 };
 use diesel::{
     dsl::*,
@@ -29,6 +31,8 @@ pub(crate) trait Repo {
         &self,
         req: &MatcherExchangeAggregatesRequest,
     ) -> Result<Vec<MatcherExchangeDbRow>, Error>;
+
+    fn pnl_aggregates(&self, req: &PnlAggregatesRequest) -> Result<Vec<PnlDbRow>, Error>;
 }
 
 pub struct PgRepo {
@@ -62,24 +66,14 @@ impl Repo for PgRepo {
             ))
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_grouped::sum_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_grouped::sum_date.le(date));
         }
 
         if req.order_sender_in.is_some() {
@@ -116,24 +110,14 @@ impl Repo for PgRepo {
             .order(exchange_transactions_grouped::sender)
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_grouped::sum_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_grouped::sum_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_grouped::sum_date.le(date));
         }
 
         if req.order_sender_in.is_some() {
@@ -153,9 +137,6 @@ impl Repo for PgRepo {
         &self,
         req: &MatcherExchangeAggregatesRequest,
     ) -> Result<Vec<MatcherExchangeDbRow>, Error> {
-        let interval = req.interval.unwrap_or(Interval::Day1);
-        assert_eq!(interval, Interval::Day1, "Unsupported interval");
-
         let mut query = exchange_transactions_daily_price_aggregates::table
             .select((
                 exchange_transactions_daily_price_aggregates::agg_date,
@@ -166,31 +147,54 @@ impl Repo for PgRepo {
                 exchange_transactions_daily_price_aggregates::price_close,
                 exchange_transactions_daily_price_aggregates::price_high,
                 exchange_transactions_daily_price_aggregates::price_low,
+                exchange_transactions_daily_price_aggregates::price_avg,
             ))
             .into_boxed();
 
-        if req.block_timestamp_gte.is_some() {
-            query = query.filter(
-                exchange_transactions_daily_price_aggregates::agg_date.ge(req
-                    .block_timestamp_gte
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            query = query.filter(exchange_transactions_daily_price_aggregates::agg_date.ge(date));
         }
 
-        if req.block_timestamp_lt.is_some() {
-            query = query.filter(
-                exchange_transactions_daily_price_aggregates::agg_date.le(req
-                    .block_timestamp_lt
-                    .unwrap()
-                    .naive_utc()
-                    .date()),
-            );
+        if let Some(date) = date_range.date_to {
+            query = query.filter(exchange_transactions_daily_price_aggregates::agg_date.le(date));
         }
 
         let rows = query
+            .order(exchange_transactions_daily_price_aggregates::agg_date.asc())
             .get_results::<MatcherExchangeDbRow>(&mut self.pg_pool.get()?)
+            .map_err(|err| Error::DbError(err))?;
+
+        Ok(rows)
+    }
+
+    fn pnl_aggregates(&self, req: &PnlAggregatesRequest) -> Result<Vec<PnlDbRow>, Error> {
+        let mut q = exchange_transactions_daily_by_sender_and_pair::table
+            .select((
+                exchange_transactions_daily_by_sender_and_pair::agg_date,
+                exchange_transactions_daily_by_sender_and_pair::amount_asset_id,
+                exchange_transactions_daily_by_sender_and_pair::price_asset_id,
+                exchange_transactions_daily_by_sender_and_pair::delta_base_vol,
+                exchange_transactions_daily_by_sender_and_pair::delta_quote_vol,
+            ))
+            .into_boxed();
+
+        // Filter by sender
+        q = q.filter(exchange_transactions_daily_by_sender_and_pair::sender.eq(&req.sender));
+
+        let date_range = req.time_range().to_date_range();
+
+        if let Some(date) = date_range.date_from {
+            q = q.filter(exchange_transactions_daily_by_sender_and_pair::agg_date.ge(date));
+        }
+
+        if let Some(date) = date_range.date_to {
+            q = q.filter(exchange_transactions_daily_by_sender_and_pair::agg_date.le(date));
+        }
+
+        let rows = q
+            .get_results::<PnlDbRow>(&mut self.pg_pool.get()?)
             .map_err(|err| Error::DbError(err))?;
 
         Ok(rows)

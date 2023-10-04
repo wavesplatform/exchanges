@@ -90,6 +90,7 @@ pub struct InsertableExchangeTx {
     block_uid: i64,
     tx_date: NaiveDate,
     tx_id: String,
+    /// This is the order sender, not transaction sender.
     sender: String,
     price_asset_id: String,
     price: i64,
@@ -98,6 +99,8 @@ pub struct InsertableExchangeTx {
     order_amount: i64,
     fee_asset_id: Option<String>,
     fee: Option<i64>,
+    /// +1 = Buy, -1 = Sell
+    buy_sell: i32,
 }
 
 pub async fn start<T, R>(
@@ -177,7 +180,7 @@ fn handle_updates<R: ConsumerRepoOperations>(
             BlockchainUpdate::Block(b) => {
                 info!("Handle block {}, height = {}", b.id, b.height);
                 let len = acc.len();
-                if acc.len() > 0 {
+                if len > 0 {
                     match acc.iter_mut().nth(len - 1).unwrap() {
                         UpdatesItem::Blocks(v) => {
                             v.push(b);
@@ -256,13 +259,13 @@ fn handle_appends<R: ConsumerRepoOperations>(
 
     let txs_with_block_uids = annotated_txs
         .to_owned()
-        .flat_map(|ann_tx| extract_exchange_txs(&ann_tx))
+        .flat_map(|ann_tx| extract_exchange_txs(&ann_tx, &matcher_address))
         .collect_vec();
 
     storage.insert_exchange_transactions(&txs_with_block_uids)?;
 
     if !is_microblock {
-        storage.update_exchange_tx_aggregates(matcher_address)?;
+        storage.update_aggregates()?;
     }
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
@@ -270,10 +273,13 @@ fn handle_appends<R: ConsumerRepoOperations>(
     Ok(())
 }
 
-fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
+/// Converts each Exchange Transaction from our matcher
+/// into a pair of `InsertableExchangeTx` structs (one per initial order).
+/// So this fn always returns either 0 or 2 items.
+fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<InsertableExchangeTx> {
     match ann_tx.tx.data.transaction.as_ref() {
         None => vec![],
-        Some(EthereumTransaction(_)) => vec![],
+        Some(EthereumTransaction(_)) => vec![], // Ethereum transactions are ignored
         Some(WavesTransaction(Transaction {
             data, timestamp, ..
         })) => {
@@ -286,6 +292,12 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                     sell_matcher_fee,
                     ..
                 })) => {
+                    let tx_sender = Address::new(&ann_tx.tx.meta.sender_address);
+                    if *tx_sender.into_string() != *matcher_address {
+                        trace!("ExchangeTx not from our matcher: {:?}", ann_tx.tx.id);
+                        return vec![]; // Skip transactions from other matchers
+                    }
+
                     let time_stamp = {
                         DateTime::<Utc>::from_naive_utc_and_offset(
                             NaiveDateTime::from_timestamp_opt(
@@ -320,6 +332,11 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                             Side::Sell => Some(*sell_matcher_fee),
                         };
 
+                        let buy_sell = match order.order_side() {
+                            Side::Buy => 1,
+                            Side::Sell => -1,
+                        };
+
                         let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
                         let price_asset_id = get_asset_id(&asset_pair.price_asset_id);
 
@@ -335,6 +352,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchangeTx> {
                             order_amount: order.amount,
                             fee_asset_id,
                             fee,
+                            buy_sell,
                         }
                     }).collect()
                 }
