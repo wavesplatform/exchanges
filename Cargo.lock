@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "exchanges-api"
-version = "1.0.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "exchanges-consumer"
-version = "1.0.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
