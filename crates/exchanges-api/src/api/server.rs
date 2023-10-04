@@ -2,7 +2,7 @@ use super::{
     apply_decimals,
     repo::{self},
     ExchangeAggregatesItem, ExchangeAggregatesRequest, IntervalExchangeItem,
-    IntervalExchangesRequest,
+    IntervalExchangesRequest, MatcherExchangeAggregatesItem, MatcherExchangeAggregatesRequest,
 };
 use crate::{
     api::repo::Repo,
@@ -12,7 +12,11 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{Days, NaiveDate};
 use itertools::Itertools;
 use shared::bigdecimal::round;
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::Arc,
+};
 use warp::{Filter, Rejection};
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
@@ -104,12 +108,23 @@ pub async fn start(
         .and_then(exchange_aggregates)
         .map(|res| warp::reply::json(&res));
 
+    let matcher_exchange_aggregates_handler = warp::path!("matcher_exchange_aggregates")
+        .and(warp::get())
+        .and(with_repo.clone())
+        .and(with_assets.clone())
+        .and(serde_qs::warp::query::<MatcherExchangeAggregatesRequest>(
+            create_serde_qs_config(),
+        ))
+        .and_then(matcher_exchange_aggregates)
+        .map(|res| warp::reply::json(&res));
+
     let log = warp::log::custom(access);
 
     info!("Starting web server at 0.0.0.0:{}", port);
 
     let routes = interval_exchanges_handler
         .or(exchange_aggregates_handler)
+        .or(matcher_exchange_aggregates_handler)
         .recover(move |rej| {
             error_handler_with_serde_qs(ERROR_CODES_PREFIX, error_handler.clone())(rej)
         })
@@ -414,6 +429,75 @@ async fn exchange_aggregates(
         .sorted()
         .map(|i| histogram.get(i).unwrap().clone())
         .collect();
+
+    let res = List {
+        items,
+        page_info: PageInfo {
+            has_next_page: false,
+            last_cursor: None,
+        },
+    };
+
+    Ok(res)
+}
+
+async fn matcher_exchange_aggregates(
+    repo: Arc<repo::PgRepo>,
+    assets_client: Arc<ApiHttpClient<AssetsService>>,
+    req: MatcherExchangeAggregatesRequest,
+) -> Result<List<MatcherExchangeAggregatesItem>, Rejection> {
+    let req = MatcherExchangeAggregatesRequest::default_merge(req)?;
+
+    let db_items = repo.matcher_exchange_aggregates(&req)?;
+
+    let mut assets = HashSet::new();
+
+    db_items.iter().for_each(|r| {
+        assets.insert(r.amount_asset_id.as_str());
+        assets.insert(r.price_asset_id.as_str());
+    });
+
+    let assets_decimals = assets_client
+        .get(assets.into_iter(), None, OutputFormat::Full, false)
+        .await
+        .map_err(|e| Error::UpstreamAPIRequestError(e))?
+        .data
+        .into_iter()
+        .filter_map(|info| match info.data {
+            Some(AssetInfo::Full(a)) => Some((a.id, a.precision)),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+
+    let get_decimals = |asset_id: &str| -> Result<i64, Error> {
+        match assets_decimals.get(asset_id) {
+            Some(d) => Ok(*d as i64),
+            None => Err(Error::UpstreamAPIBadResponse(format!(
+                "can't get decimals {} from asset service",
+                asset_id
+            ))
+            .into()),
+        }
+    };
+
+    let mut items = vec![];
+
+    for r in db_items {
+        //let price_dec = get_decimals(&r.price_asset_id)?;
+        let amount_dec = get_decimals(&r.amount_asset_id)?;
+        let price_dec = 8; // Order v3 - fixed 8 decimals for price
+
+        let mut item =
+            MatcherExchangeAggregatesItem::empty(r.amount_asset_id, r.price_asset_id, r.agg_date);
+
+        item.total_amount = apply_decimals(r.total_amount, amount_dec);
+        item.price_open = apply_decimals(r.price_open, price_dec);
+        item.price_close = apply_decimals(r.price_close, price_dec);
+        item.price_high = apply_decimals(r.price_high, price_dec);
+        item.price_low = apply_decimals(r.price_low, price_dec);
+
+        items.push(item);
+    }
 
     let res = List {
         items,

@@ -1,0 +1,1 @@
+DROP TABLE exchange_transactions_daily_price_aggregates;
