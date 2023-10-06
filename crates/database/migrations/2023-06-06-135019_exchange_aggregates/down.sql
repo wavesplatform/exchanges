@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS "ex_tx_gr_sum_date_idx";

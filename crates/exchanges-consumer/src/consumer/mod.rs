@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use database::schema::exchange_transactions;
 use itertools::Itertools;
 use shared::waves::Address;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc::Receiver;
 use waves_protobuf_schemas::waves::events::transaction_metadata::{ExchangeMetadata, Metadata};
 use waves_protobuf_schemas::waves::order::Side;
@@ -86,16 +86,21 @@ pub trait UpdatesSource {
 
 #[derive(Clone, Debug, Insertable)]
 #[table_name = "exchange_transactions"]
-pub struct InsertableExchnageTx {
+pub struct InsertableExchangeTx {
     block_uid: i64,
     tx_date: NaiveDate,
     tx_id: String,
+    /// This is the order sender, not transaction sender.
     sender: String,
+    price_asset_id: String,
+    price: i64,
     amount_asset_id: String,
     amount: i64,
     order_amount: i64,
     fee_asset_id: Option<String>,
     fee: Option<i64>,
+    /// +1 = Buy, -1 = Sell
+    buy_sell: i32,
 }
 
 pub async fn start<T, R>(
@@ -104,6 +109,7 @@ pub async fn start<T, R>(
     storage: R,
     updates_per_request: usize,
     max_wait_time_in_secs: u64,
+    matcher_address: Arc<String>,
 ) -> Result<()>
 where
     T: UpdatesSource + Send + Sync + 'static,
@@ -143,10 +149,12 @@ where
 
         let last_height = updates_with_height.last_height;
 
+        let matcher_address = matcher_address.clone();
+
         start = Instant::now();
 
         storage.transaction(|ops| {
-            handle_updates(updates_with_height, ops)?;
+            handle_updates(updates_with_height, ops, matcher_address)?;
 
             info!(
                 "{} updates were handled in {:?} ms. Last updated height is {}.",
@@ -163,6 +171,7 @@ where
 fn handle_updates<R: ConsumerRepoOperations>(
     updates_with_height: BlockchainUpdatesWithLastHeight,
     storage: &R,
+    matcher_address: Arc<String>,
 ) -> Result<()> {
     updates_with_height
         .updates
@@ -171,8 +180,8 @@ fn handle_updates<R: ConsumerRepoOperations>(
             BlockchainUpdate::Block(b) => {
                 info!("Handle block {}, height = {}", b.id, b.height);
                 let len = acc.len();
-                if acc.len() > 0 {
-                    match acc.iter_mut().nth(len as usize - 1).unwrap() {
+                if len > 0 {
+                    match acc.iter_mut().nth(len - 1).unwrap() {
                         UpdatesItem::Blocks(v) => {
                             v.push(b);
                             acc
@@ -202,9 +211,14 @@ fn handle_updates<R: ConsumerRepoOperations>(
         .try_fold((), |_, update_item| match update_item {
             UpdatesItem::Blocks(bs) => {
                 squash_microblocks(storage)?;
-                handle_appends(storage, bs.as_ref(), false)
+                handle_appends(storage, bs.as_ref(), false, matcher_address.clone())
             }
-            UpdatesItem::Microblock(mba) => handle_appends(storage, &vec![mba.to_owned()], true),
+            UpdatesItem::Microblock(mba) => handle_appends(
+                storage,
+                &vec![mba.to_owned()],
+                true,
+                matcher_address.clone(),
+            ),
             UpdatesItem::Rollback(sig) => {
                 let block_uid = storage.get_block_uid(&sig)?;
                 rollback(storage, block_uid)
@@ -218,6 +232,7 @@ fn handle_appends<R: ConsumerRepoOperations>(
     storage: &R,
     appends: &Vec<BlockMicroblockAppend>,
     is_microblock: bool,
+    matcher_address: Arc<String>,
 ) -> Result<()> {
     let block_uids = storage.insert_blocks_or_microblocks(
         &appends
@@ -244,13 +259,13 @@ fn handle_appends<R: ConsumerRepoOperations>(
 
     let txs_with_block_uids = annotated_txs
         .to_owned()
-        .flat_map(|ann_tx| extract_exchange_txs(&ann_tx))
+        .flat_map(|ann_tx| extract_exchange_txs(&ann_tx, &matcher_address))
         .collect_vec();
 
     storage.insert_exchange_transactions(&txs_with_block_uids)?;
 
     if !is_microblock {
-        storage.update_exchange_transactions_histogram()?;
+        storage.update_aggregates()?;
     }
 
     info!("extracted and handled {} ", txs_with_block_uids.len());
@@ -258,10 +273,13 @@ fn handle_appends<R: ConsumerRepoOperations>(
     Ok(())
 }
 
-fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
+/// Converts each Exchange Transaction from our matcher
+/// into a pair of `InsertableExchangeTx` structs (one per initial order).
+/// So this fn always returns either 0 or 2 items.
+fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<InsertableExchangeTx> {
     match ann_tx.tx.data.transaction.as_ref() {
         None => vec![],
-        Some(EthereumTransaction(_)) => vec![],
+        Some(EthereumTransaction(_)) => vec![], // Ethereum transactions are ignored
         Some(WavesTransaction(Transaction {
             data, timestamp, ..
         })) => {
@@ -269,12 +287,19 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                 Some(Data::Exchange(ExchangeTransactionData {
                     orders,
                     amount,
+                    price,
                     buy_matcher_fee,
                     sell_matcher_fee,
                     ..
                 })) => {
+                    let tx_sender = Address::new(&ann_tx.tx.meta.sender_address);
+                    if *tx_sender.into_string() != *matcher_address {
+                        trace!("ExchangeTx not from our matcher: {:?}", ann_tx.tx.id);
+                        return vec![]; // Skip transactions from other matchers
+                    }
+
                     let time_stamp = {
-                        DateTime::<Utc>::from_utc(
+                        DateTime::<Utc>::from_naive_utc_and_offset(
                             NaiveDateTime::from_timestamp_opt(
                                 *timestamp / 1000,
                                 *timestamp as u32 % 1000 * 1000,
@@ -307,18 +332,27 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx) -> Vec<InsertableExchnageTx> {
                             Side::Sell => Some(*sell_matcher_fee),
                         };
 
-                        let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
+                        let buy_sell = match order.order_side() {
+                            Side::Buy => 1,
+                            Side::Sell => -1,
+                        };
 
-                        InsertableExchnageTx {
+                        let amount_asset_id = get_asset_id(&asset_pair.amount_asset_id);
+                        let price_asset_id = get_asset_id(&asset_pair.price_asset_id);
+
+                        InsertableExchangeTx {
                             block_uid: ann_tx.block_uid,
                             tx_date: time_stamp.date_naive(),
                             tx_id: ann_tx.tx.id.clone(),
                             sender: sender_address,
+                            price_asset_id,
+                            price: *price,
                             amount_asset_id,
                             amount: *amount,
                             order_amount: order.amount,
-                            fee_asset_id: fee_asset_id,
+                            fee_asset_id,
                             fee,
+                            buy_sell,
                         }
                     }).collect()
                 }
@@ -354,7 +388,6 @@ fn rollback<R: ConsumerRepoOperations>(storage: &R, block_uid: i64) -> Result<()
 }
 
 mod convert {
-
     pub(super) fn get_asset_id<I: AsRef<[u8]>>(input: I) -> String {
         if input.as_ref().is_empty() {
             "WAVES".to_owned()
