@@ -34,6 +34,8 @@ pub enum Interval {
     Day7,
     #[serde(rename = "30d")]
     Day30,
+    #[serde(rename = "365d")]
+    Day365,
 }
 
 impl TryFrom<&str> for Interval {
@@ -659,6 +661,11 @@ impl NaiveDateInterval {
                 interval: Interval::Day30,
                 interval_start: day_start,
                 interval_end: day_end + Duration::days(29),
+            },
+            Interval::Day365 => NaiveDateInterval {
+                interval: Interval::Day365,
+                interval_start: day_start,
+                interval_end: day_end + Duration::days(364),
             },
         }
     }
