@@ -8,6 +8,21 @@ fn default_pgpoolsize() -> u32 {
     1
 }
 
+use wavesexchange_liveness::PostgresConfig as LivenessPostgresConfig;
+
+impl From<Config> for LivenessPostgresConfig {
+    fn from(config: Config) -> Self {
+        LivenessPostgresConfig {
+            host: config.host,
+            port: config.port,
+            database: config.database,
+            user: config.user,
+            password: config.password,
+            poolsize: config.pool_size,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ConfigFlat {
     pub pghost: String,

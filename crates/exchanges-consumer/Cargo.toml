@@ -23,6 +23,7 @@ waves-protobuf-schemas.workspace = true
 wavesexchange_apis.workspace = true
 wavesexchange_log.workspace = true
 wavesexchange_warp.workspace = true
+wavesexchange_liveness.workspace = true
 
 # Local deps
 database.workspace = true
