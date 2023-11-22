@@ -43,6 +43,7 @@ wavesexchange_loaders = { git = "https://github.com/waves-exchange/wavesexchange
 wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.32" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.7" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
+wavesexchange_liveness = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_liveness/0.1.0" }
 
 # Local crates
 database = { path = "./crates/database", version = "0.0.0" }

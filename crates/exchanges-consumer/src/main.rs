@@ -9,9 +9,28 @@ use crate::consumer::storage::pg::PgConsumerRepo;
 use anyhow::Result;
 use database::db;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::select;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
+use wavesexchange_liveness::channel;
+use wavesexchange_liveness::PostgresConfig as LivenessPostgresConfig;
+
+const POLL_INTERVAL_SECS: u64 = 60;
+const MAX_BLOCK_AGE: Duration = Duration::from_secs(300);
+
+impl From<database::config::Config> for LivenessPostgresConfig {
+    fn from(config: database::config::Config) -> Self {
+        LivenessPostgresConfig {
+            host: config.host,
+            port: config.port,
+            database: config.database,
+            user: config.user,
+            password: config.password,
+            poolsize: config.pool_size,
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,9 +56,20 @@ async fn main() -> Result<()> {
         Arc::new(config.consumer.matcher_address),
     );
 
-    let metrics = MetricsWarpBuilder::new()
-        .with_metrics_port(config.consumer.metrics_port)
-        .run_async();
+    let readiness_channel = channel(
+        LivenessPostgresConfig::from(config.postgres),
+        POLL_INTERVAL_SECS,
+        MAX_BLOCK_AGE,
+    );
+
+    let metrics = tokio::spawn(async move {
+        MetricsWarpBuilder::new()
+            .with_metrics_port(config.consumer.metrics_port)
+            .with_readiness_channel(readiness_channel)
+            .run_async()
+            .await
+    });
+
 
     select! {
 
