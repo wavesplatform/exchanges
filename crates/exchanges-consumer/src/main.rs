@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use wavesexchange_liveness::channel;
-use wavesexchange_liveness::PostgresConfig as LivenessPostgresConfig;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
 
@@ -32,22 +31,19 @@ async fn main() -> Result<()> {
 
     let updates_src = consumer::updates::new(&config.consumer.blockchain_updates_url).await?;
 
-    let storage = PgConsumerRepo::new(conn);
+    let mut storage = PgConsumerRepo::new(conn);
 
     let consumer_handle = consumer::start(
         config.consumer.starting_height,
         updates_src,
-        storage,
+        &mut storage,
         config.consumer.updates_per_request,
         config.consumer.max_wait_time_in_secs,
         Arc::new(config.consumer.matcher_address),
     );
 
-    let readiness_channel = channel(
-        LivenessPostgresConfig::from(config.postgres),
-        POLL_INTERVAL_SECS,
-        MAX_BLOCK_AGE,
-    );
+    let db_url = config.postgres.database_url();
+    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE);
 
     let metrics = tokio::spawn(async move {
         MetricsWarpBuilder::new()
