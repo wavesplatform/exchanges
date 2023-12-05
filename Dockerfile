@@ -1,4 +1,4 @@
-FROM rust:1.72 AS builder
+FROM rust:1.74 AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl openssl libssl-dev libpq-dev protobuf-compiler
