@@ -10,8 +10,8 @@ edition = "2021"
 anyhow = "1.0"
 async-trait = "0.1"
 base64 = "0.21.0"
-bigdecimal = { version = "0.1", features = ["serde"] } # Upgrade to 0.3 and remove patch when possible
-num-bigint = { version = "0.2", features = ["i128"] }
+bigdecimal = { version = "0.3", features = ["serde"] }
+num-bigint = "0.4"
 num-integer = { version = "0.1", features = ["i128"] }
 blake2 = "0.10"
 bs58 = "0.5"
@@ -48,8 +48,3 @@ waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-sche
 # Local crates
 database = { path = "./crates/database", version = "0.0.0" }
 shared = { path = "./crates/shared", version = "0.0.0" }
-
-[patch.crates-io]
-# transitively sets up bigdecimal = "0.1.2" in wavesexchange_apis
-# remove after migrating on diesel 2
-bigdecimal = { git = "https://github.com/akubera/bigdecimal-rs/", tag = "v0.1.2" }

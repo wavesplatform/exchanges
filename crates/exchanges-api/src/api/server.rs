@@ -7,7 +7,7 @@ use super::{
     NaiveDateInterval, PnlAggregatesItem, PnlAggregatesRequest,
 };
 use crate::gateways::assets::AssetServiceGateway;
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::{BigDecimal, Zero, FromPrimitive};
 use chrono::{Days, Duration, NaiveDate, Utc};
 use itertools::Itertools;
 use shared::bigdecimal::round;
@@ -591,7 +591,7 @@ async fn pnl_aggregates(
                 let date = dt1;
                 rate.aggregates.into_iter().map(move |agg| {
                     let asset = agg.pair.splitn(2, '/').next().expect("pair").to_owned();
-                    let rate = agg.rates.average.map(BigDecimal::from).unwrap_or_default();
+                    let rate = agg.rates.average.and_then(BigDecimal::from_f64).unwrap_or_default();
                     (asset, date, rate)
                 })
             })
