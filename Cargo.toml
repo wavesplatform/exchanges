@@ -19,7 +19,7 @@ bytes = "1.0.1"
 cached = "0.46"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "2.0", default-features = false, features = ["postgres", "chrono", "r2d2", "numeric"] }
-diesel-derive-enum = { version = "2.1", features = ["postgres"] }
+diesel-derive-enum = { version = "~2.0", features = ["postgres"] } # version 2.1.0 does not compile
 diesel_migrations = "2.0"
 envy = "0.4"
 fragstrings = { git = "https://github.com/waves-exchange/fragstrings", tag = "v0.2.0" }
