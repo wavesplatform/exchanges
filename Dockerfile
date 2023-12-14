@@ -8,9 +8,7 @@ RUN rustup component add rustfmt
 COPY Cargo.* ./
 COPY ./crates ./crates
 
-RUN cargo install --path ./crates/database
-RUN cargo install --path ./crates/exchanges-api
-RUN cargo install --path ./crates/exchanges-consumer
+RUN cargo build --release
 
 FROM debian:12 as runtime
 WORKDIR /app
@@ -20,7 +18,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN /usr/sbin/update-ca-certificates
 
-COPY --from=builder /usr/local/cargo/bin/* ./
+COPY --from=builder /app/target/release/api ./api
+COPY --from=builder /app/target/release/consumer ./consumer
+COPY --from=builder /app/target/release/migration ./migration
 COPY --from=builder /app/crates/database/migrations ./migrations/
 
 CMD ['./api']
