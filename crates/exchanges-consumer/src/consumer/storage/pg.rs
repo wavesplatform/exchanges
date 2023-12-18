@@ -34,21 +34,21 @@ impl ConsumerRepo for PgConsumerRepo {
 
     fn execute<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(PooledPgConnection) -> Result<R>,
+        F: FnOnce(&mut PooledPgConnection) -> Result<R>,
     {
         tokio::task::block_in_place(move || {
-            let conn = self.get_conn()?;
-            f(conn)
+            let mut conn = self.get_conn()?;
+            f(&mut conn)
         })
     }
 
     fn transaction<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&PooledPgConnection) -> Result<R>,
+        F: FnOnce(&mut PooledPgConnection) -> Result<R>,
     {
         tokio::task::block_in_place(move || {
-            let conn = self.get_conn()?;
-            conn.transaction(|| f(&conn))
+            let mut conn = self.get_conn()?;
+            conn.transaction(|conn| f(conn))
         })
     }
 }
@@ -58,7 +58,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
     // COMMON
     //
 
-    fn get_first_height_in_last_day(&self) -> Result<Option<PrevHandledHeight>> {
+    fn get_first_height_in_last_day(&mut self) -> Result<Option<PrevHandledHeight>> {
         // get first blocks_microblocks.uid in last date
         let filter_sql = format!("(select min(height) from blocks_microblocks where time_stamp > (select extract(EPOCH from date_trunc('DAY', to_timestamp(time_stamp/1000)))*1000  from blocks_microblocks where time_stamp is not null order by uid desc limit 1))");
 
@@ -71,7 +71,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             .map_err(|err| Error::new(AppError::DbError(err)))
     }
 
-    fn get_handled_height(&self, depth: u32) -> Result<Option<PrevHandledHeight>> {
+    fn get_handled_height(&mut self, depth: u32) -> Result<Option<PrevHandledHeight>> {
         let filter_sql = format!("(select max(height) - {} from blocks_microblocks)", depth);
 
         blocks_microblocks::table
@@ -83,7 +83,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             .map_err(|err| Error::new(AppError::DbError(err)))
     }
 
-    fn get_block_uid(&self, block_id: &str) -> Result<i64> {
+    fn get_block_uid(&mut self, block_id: &str) -> Result<i64> {
         blocks_microblocks::table
             .select(blocks_microblocks::uid)
             .filter(blocks_microblocks::id.eq(block_id))
@@ -94,9 +94,9 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn get_key_block_uid(&self) -> Result<i64> {
+    fn get_key_block_uid(&mut self) -> Result<i64> {
         blocks_microblocks::table
-            .select(sql("max(uid)"))
+            .select(sql::<diesel::sql_types::BigInt>("max(uid)"))
             .filter(blocks_microblocks::time_stamp.is_not_null())
             .get_result(self)
             .map_err(|err| {
@@ -105,7 +105,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn get_total_block_id(&self) -> Result<Option<String>> {
+    fn get_total_block_id(&mut self) -> Result<Option<String>> {
         blocks_microblocks::table
             .select(blocks_microblocks::id)
             .filter(blocks_microblocks::time_stamp.is_null())
@@ -118,7 +118,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn insert_blocks_or_microblocks(&self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>> {
+    fn insert_blocks_or_microblocks(&mut self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>> {
         diesel::insert_into(blocks_microblocks::table)
             .values(blocks)
             .returning(blocks_microblocks::uid)
@@ -129,7 +129,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()> {
+    fn change_block_id(&mut self, block_uid: &i64, new_block_id: &str) -> Result<()> {
         diesel::update(blocks_microblocks::table)
             .set(blocks_microblocks::id.eq(new_block_id))
             .filter(blocks_microblocks::uid.eq(block_uid))
@@ -141,7 +141,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn delete_microblocks(&self) -> Result<()> {
+    fn delete_microblocks(&mut self) -> Result<()> {
         diesel::delete(blocks_microblocks::table)
             .filter(blocks_microblocks::time_stamp.is_null())
             .execute(self)
@@ -152,7 +152,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()> {
+    fn rollback_blocks_microblocks(&mut self, block_uid: &i64) -> Result<()> {
         diesel::delete(blocks_microblocks::table)
             .filter(blocks_microblocks::uid.gt(block_uid))
             .execute(self)
@@ -163,7 +163,10 @@ impl ConsumerRepoOperations for PooledPgConnection {
             })
     }
 
-    fn insert_exchange_transactions(&self, transactions: &Vec<InsertableExchangeTx>) -> Result<()> {
+    fn insert_exchange_transactions(
+        &mut self,
+        transactions: &Vec<InsertableExchangeTx>,
+    ) -> Result<()> {
         transactions
             .to_owned()
             .chunks(4000)
@@ -182,7 +185,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         Ok(())
     }
 
-    fn update_exchange_transactions_block_references(&self, block_uid: &i64) -> Result<()> {
+    fn update_exchange_transactions_block_references(&mut self, block_uid: &i64) -> Result<()> {
         diesel::update(exchange_transactions::table)
             .set((exchange_transactions::block_uid.eq(block_uid),))
             .filter(exchange_transactions::block_uid.gt(block_uid))
@@ -198,7 +201,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn block_timestamps_by_heights(
-        &self,
+        &mut self,
         from_height: i32,
         to_height: i32,
     ) -> Result<HashMap<i32, NaiveDateTime>, Error> {
@@ -227,7 +230,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
     }
 
     fn block_uids_by_timestamps(
-        &self,
+        &mut self,
         from_timestamp: NaiveDateTime,
         to_timestamp: NaiveDateTime,
     ) -> Result<(Option<i64>, Option<i64>), Error> {
@@ -257,7 +260,7 @@ impl ConsumerRepoOperations for PooledPgConnection {
         Ok(res[0])
     }
 
-    fn update_aggregates(&self) -> Result<()> {
+    fn update_aggregates(&mut self) -> Result<()> {
         let last_dates = exchange_transactions::table
             .select(exchange_transactions::tx_date)
             .order(exchange_transactions::tx_date.desc())
@@ -335,7 +338,10 @@ impl ConsumerRepoOperations for PooledPgConnection {
         let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
-            let context = format!("Cannot save exchange_transactions_daily_price_aggregates: {}", err);
+            let context = format!(
+                "Cannot save exchange_transactions_daily_price_aggregates: {}",
+                err
+            );
             Error::new(AppError::DbError(err)).context(context)
         })?;
 
@@ -361,14 +367,17 @@ impl ConsumerRepoOperations for PooledPgConnection {
         let q = sql_query(sql).bind::<Date, _>(&last_date);
 
         q.execute(self).map(|_| ()).map_err(|err| {
-            let context = format!("Cannot save exchange_transactions_daily_by_sender_and_pair: {}", err);
+            let context = format!(
+                "Cannot save exchange_transactions_daily_by_sender_and_pair: {}",
+                err
+            );
             Error::new(AppError::DbError(err)).context(context)
         })?;
 
         Ok(())
     }
 
-    fn delete_old_exchange_transactions(&self) -> Result<()> {
+    fn delete_old_exchange_transactions(&mut self) -> Result<()> {
         let old_dates = exchange_transactions::table
             .select(sql::<Date>("(tx_date - '2 DAY'::interval)::Date"))
             .order(exchange_transactions::tx_date.desc())

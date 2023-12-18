@@ -85,7 +85,7 @@ pub trait UpdatesSource {
 }
 
 #[derive(Clone, Debug, Insertable)]
-#[table_name = "exchange_transactions"]
+#[diesel(table_name = exchange_transactions)]
 pub struct InsertableExchangeTx {
     block_uid: i64,
     tx_date: NaiveDate,
@@ -106,7 +106,7 @@ pub struct InsertableExchangeTx {
 pub async fn start<T, R>(
     starting_height: u32,
     updates_src: T,
-    storage: R,
+    storage: &mut R,
     updates_per_request: usize,
     max_wait_time_in_secs: u64,
     matcher_address: Arc<String>,
@@ -170,7 +170,7 @@ where
 
 fn handle_updates<R: ConsumerRepoOperations>(
     updates_with_height: BlockchainUpdatesWithLastHeight,
-    storage: &R,
+    storage: &mut R,
     matcher_address: Arc<String>,
 ) -> Result<()> {
     updates_with_height
@@ -229,7 +229,7 @@ fn handle_updates<R: ConsumerRepoOperations>(
 }
 
 fn handle_appends<R: ConsumerRepoOperations>(
-    storage: &R,
+    storage: &mut R,
     appends: &Vec<BlockMicroblockAppend>,
     is_microblock: bool,
     matcher_address: Arc<String>,
@@ -362,7 +362,7 @@ fn extract_exchange_txs(ann_tx: &AnnotatedTx, matcher_address: &str) -> Vec<Inse
     }
 }
 
-fn squash_microblocks<R: ConsumerRepoOperations>(storage: &R) -> Result<()> {
+fn squash_microblocks<R: ConsumerRepoOperations>(storage: &mut R) -> Result<()> {
     let total_block_id = storage.get_total_block_id()?;
 
     match total_block_id {
@@ -381,7 +381,7 @@ fn squash_microblocks<R: ConsumerRepoOperations>(storage: &R) -> Result<()> {
     Ok(())
 }
 
-fn rollback<R: ConsumerRepoOperations>(storage: &R, block_uid: i64) -> Result<()> {
+fn rollback<R: ConsumerRepoOperations>(storage: &mut R, block_uid: i64) -> Result<()> {
     debug!("rolling back to block_uid = {}", block_uid);
 
     storage.rollback_blocks_microblocks(&block_uid)

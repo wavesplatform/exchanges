@@ -59,71 +59,69 @@ impl TryFrom<&str> for Interval {
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub(crate) struct ExchangeAggregateDbRow {
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub sender: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub amount_asset_id: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub fee_asset_id: String,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub amount_sum: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub fee_sum: BigDecimal,
-    #[sql_type = "Int8"]
+    #[diesel(sql_type = Int8)]
     pub count: i64,
 }
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub(crate) struct IntervalExchangeDbRow {
-    #[sql_type = "Date"]
+    #[diesel(sql_type = Date)]
     pub sum_date: NaiveDate,
-    // #[sql_type = "Text"]
-    // sender: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub amount_asset_id: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub fee_asset_id: String,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub amount_sum: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub fee_sum: BigDecimal,
-    #[sql_type = "Int8"]
+    #[diesel(sql_type = Int8)]
     pub count: i64,
 }
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub(crate) struct MatcherExchangeDbRow {
-    #[sql_type = "Date"]
+    #[diesel(sql_type = Date)]
     pub agg_date: NaiveDate,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub amount_asset_id: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub price_asset_id: String,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub total_amount: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub price_open: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub price_close: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub price_high: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub price_low: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub price_avg: BigDecimal,
 }
 
 #[derive(Clone, Debug, Queryable, QueryableByName)]
 pub(crate) struct PnlDbRow {
-    #[sql_type = "Date"]
+    #[diesel(sql_type = Date)]
     pub agg_date: NaiveDate,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub amount_asset_id: String,
-    #[sql_type = "Text"]
+    #[diesel(sql_type = Text)]
     pub price_asset_id: String,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub delta_base_vol: BigDecimal,
-    #[sql_type = "Numeric"]
+    #[diesel(sql_type = Numeric)]
     pub delta_quote_vol: BigDecimal,
 }
 

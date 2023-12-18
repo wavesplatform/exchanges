@@ -30,6 +30,15 @@ pub struct Config {
     pub pool_size: u32,
 }
 
+impl Config {
+    pub fn database_url(&self) -> String {
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            self.user, self.password, self.host, self.port, self.database
+        )
+    }
+}
+
 pub fn load() -> anyhow::Result<Config> {
     let config_flat = envy::from_env::<ConfigFlat>()?;
 
