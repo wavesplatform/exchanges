@@ -3,28 +3,28 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "1.3.0"
+version = "1.3.1"
 edition = "2021"
 
 [workspace.dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
 base64 = "0.21.0"
-bigdecimal = { version = "0.1", features = ["serde"] } # Upgrade to 0.3 and remove patch when possible
-num-bigint = { version = "0.2", features = ["i128"] }
+bigdecimal = { version = "0.3", features = ["serde"] }
+num-bigint = "0.4"
 num-integer = { version = "0.1", features = ["i128"] }
 blake2 = "0.10"
 bs58 = "0.5"
 bytes = "1.0.1"
 cached = "0.46"
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "1.4.8", default-features = false, features = ["postgres", "chrono", "r2d2", "numeric"] }
-diesel-derive-enum = { version = "1.1.2", features = ["postgres"] }
-diesel_migrations = "1.4"
+diesel = { version = "2.0", default-features = false, features = ["postgres", "chrono", "r2d2", "numeric"] }
+diesel-derive-enum = { version = "~2.0", features = ["postgres"] } # version 2.1.0 does not compile
+diesel_migrations = "2.0"
 envy = "0.4"
 fragstrings = { git = "https://github.com/waves-exchange/fragstrings", tag = "v0.2.0" }
 futures = "0.3"
-itertools = "0.11"
+itertools = "0.12"
 lazy_static = "1.4"
 percent-encoding = "2.1"
 r2d2 = "0.8"
@@ -40,15 +40,11 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 warp = { version = "0.3", default-features = false }
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
 wavesexchange_loaders = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_loaders/0.2.2" }
-wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.32" }
-wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.7" }
+wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.36" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.9" }
+wavesexchange_liveness = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_liveness/0.2.0" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
 
 # Local crates
 database = { path = "./crates/database", version = "0.0.0" }
 shared = { path = "./crates/shared", version = "0.0.0" }
-
-[patch.crates-io]
-# transitively sets up bigdecimal = "0.1.2" in wavesexchange_apis
-# remove after migrating on diesel 2
-bigdecimal = { git = "https://github.com/akubera/bigdecimal-rs/", tag = "v0.1.2" }

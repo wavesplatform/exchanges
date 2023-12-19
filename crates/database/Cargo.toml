@@ -12,6 +12,7 @@ diesel_migrations.workspace = true
 envy.workspace = true
 r2d2.workspace = true
 serde.workspace = true
+wavesexchange_liveness.workspace = true
 
 [lib]
 name = "database"
