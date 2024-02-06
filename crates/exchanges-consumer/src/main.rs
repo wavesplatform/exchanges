@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
     );
 
     let db_url = config.postgres.database_url();
-    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE);
+    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE, None);
 
     let metrics = tokio::spawn(async move {
         MetricsWarpBuilder::new()
